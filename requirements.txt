@@ -7,6 +7,10 @@ firebase-admin==6.2.0
 
 # Database (SQLite is built-in)
 
+# Export Functionality
+reportlab==4.0.9
+openpyxl==3.11.2
+
 # Utilities
 requests==2.31.0
 python-dotenv==1.0.0
