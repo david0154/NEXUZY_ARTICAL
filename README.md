@@ -2,7 +2,7 @@
 
 > **Offline-First Python Tkinter Windows Application**  
 > Admin + User Dashboard | Firebase + Local DB Sync  
-> Developed by **Manoj Konar** | monoj@nexuzy.in  
+> Developed by **David** | davidj@nexuzy.in  
 > **Nexuzy** © 2026
 
 ---
@@ -363,8 +363,8 @@ Found a bug? Report it:
 
 ## 📞 Support
 
-**Developer:** Manoj Konar  
-**Email:** monoj@nexuzy.in  
+**Developer:** David 
+**Email:** david@nexuzy.in  
 **Company:** Nexuzy  
 **Website:** nexuzy.in  
 **GitHub:** [github.com/david0154/NEXUZY_ARTICAL](https://github.com/david0154/NEXUZY_ARTICAL)
@@ -393,6 +393,6 @@ All Rights Reserved
 ## 🎉 Thank You!
 
 Thank you for using **NEXUZY ARTICAL**!  
-For questions or suggestions, reach out to **monoj@nexuzy.in**
+For questions or suggestions, reach out to **david@nexuzy.in**
 
 **Happy Coding! 🚀**
