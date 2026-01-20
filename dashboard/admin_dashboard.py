@@ -248,7 +248,7 @@ class AdminDashboard:
                 tree.column("ID", width=80)
                 tree.column("Name", width=150)
                 tree.column("Mould", width=100)
-                tree.column("Size", width=60)
+                tree.column("Size", width=100)
                 tree.column("Gender", width=80)
                 tree.column("Created By", width=100)
                 tree.column("Date", width=100)
@@ -511,7 +511,7 @@ class AdminDashboard:
         
         dialog = tk.Toplevel(self.root)
         dialog.title("Create Article")
-        dialog.geometry("400x450")
+        dialog.geometry("400x400")
         dialog.resizable(False, False)
         
         tk.Label(dialog, text="Create New Article", font=("Arial", 12, "bold")).pack(pady=10)
@@ -526,15 +526,10 @@ class AdminDashboard:
         mould_entry = tk.Entry(dialog, font=("Arial", 10), width=35)
         mould_entry.pack(padx=20, ipady=5)
         
-        # Size
+        # Size - CHANGED TO TEXT BOX
         tk.Label(dialog, text="Size:", font=("Arial", 10)).pack(anchor=tk.W, padx=20, pady=(10, 3))
-        size_var = tk.StringVar(value="M")
-        size_frame = tk.Frame(dialog)
-        size_frame.pack(anchor=tk.W, padx=20)
-        
-        sizes = ["XS", "S", "M", "L", "XL", "XXL", "Free"]
-        for size in sizes:
-            tk.Radiobutton(size_frame, text=size, variable=size_var, value=size).pack(side=tk.LEFT)
+        size_entry = tk.Entry(dialog, font=("Arial", 10), width=35)
+        size_entry.pack(padx=20, ipady=5)
         
         # Gender
         tk.Label(dialog, text="Gender:", font=("Arial", 10)).pack(anchor=tk.W, padx=20, pady=(10, 3))
@@ -549,11 +544,15 @@ class AdminDashboard:
             try:
                 article_name = article_name_entry.get().strip()
                 mould = mould_entry.get().strip()
-                size = size_var.get()
+                size = size_entry.get().strip()
                 gender = gender_var.get()
                 
                 if not article_name or not mould:
                     messagebox.showerror("Error", "Article name and mould are required")
+                    return
+                
+                if not size:
+                    messagebox.showerror("Error", "Size is required")
                     return
                 
                 article = Article(
