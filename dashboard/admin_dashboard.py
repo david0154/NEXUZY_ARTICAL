@@ -13,6 +13,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import APP_NAME, PRIMARY_COLOR
+from utils.export import ExportManager
 
 
 class AdminDashboard:
@@ -26,6 +27,7 @@ class AdminDashboard:
         self.network_checker = network_checker
         self.logout_callback = logout_callback
         self.logger = logger
+        self.exporter = ExportManager()
         
         self.root.deiconify()
         self.setup_ui()
@@ -127,7 +129,7 @@ class AdminDashboard:
             total_users = len(self.db.get_all_users())
             total_articles = len(self.db.get_all_articles())
             is_online = self.network_checker.is_connected()
-        except:
+        except Exception:
             total_users = 0
             total_articles = 0
             is_online = False
@@ -182,13 +184,42 @@ class AdminDashboard:
         """Show articles management"""
         self.clear_content()
         
+        header_frame = tk.Frame(self.content_frame, bg="white")
+        header_frame.pack(fill=tk.X)
+        
         title = tk.Label(
-            self.content_frame,
+            header_frame,
             text="Article Management",
             font=("Arial", 16, "bold"),
             bg="white"
         )
-        title.pack(anchor=tk.W, pady=(0, 15))
+        title.pack(side=tk.LEFT, pady=(0, 15))
+        
+        # Export buttons
+        export_frame = tk.Frame(header_frame, bg="white")
+        export_frame.pack(side=tk.RIGHT, pady=(0, 15))
+        
+        tk.Button(
+            export_frame,
+            text="Export Excel",
+            font=("Arial", 9),
+            bg="#2c974b",
+            fg="white",
+            relief=tk.FLAT,
+            cursor="hand2",
+            command=self.export_articles_excel
+        ).pack(side=tk.LEFT, padx=5, ipady=4, ipadx=8)
+        
+        tk.Button(
+            export_frame,
+            text="Export PDF",
+            font=("Arial", 9),
+            bg="#d35400",
+            fg="white",
+            relief=tk.FLAT,
+            cursor="hand2",
+            command=self.export_articles_pdf
+        ).pack(side=tk.LEFT, padx=5, ipady=4, ipadx=8)
         
         # Add button
         tk.Button(
@@ -200,13 +231,12 @@ class AdminDashboard:
             relief=tk.FLAT,
             cursor="hand2",
             command=self.create_article
-        ).pack(anchor=tk.W, pady=(0, 15), ipady=6, ipadx=15)
+        ).pack(anchor=tk.W, pady=(10, 15), ipady=6, ipadx=15)
         
         # Articles list
         try:
             articles = self.db.get_all_articles()
             if articles:
-                # Create treeview
                 columns = ("ID", "Name", "Mould", "Size", "Gender", "Created By", "Date")
                 tree = ttk.Treeview(self.content_frame, columns=columns, height=15, show="headings")
                 
@@ -227,7 +257,6 @@ class AdminDashboard:
                 
                 tree.pack(fill=tk.BOTH, expand=True)
                 
-                # Scrollbar
                 scrollbar = ttk.Scrollbar(self.content_frame, orient=tk.VERTICAL, command=tree.yview)
                 tree.configure(yscroll=scrollbar.set)
                 scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -253,13 +282,42 @@ class AdminDashboard:
         """Show users management"""
         self.clear_content()
         
+        header_frame = tk.Frame(self.content_frame, bg="white")
+        header_frame.pack(fill=tk.X)
+        
         title = tk.Label(
-            self.content_frame,
+            header_frame,
             text="User Management",
             font=("Arial", 16, "bold"),
             bg="white"
         )
-        title.pack(anchor=tk.W, pady=(0, 15))
+        title.pack(side=tk.LEFT, pady=(0, 15))
+        
+        # Export buttons
+        export_frame = tk.Frame(header_frame, bg="white")
+        export_frame.pack(side=tk.RIGHT, pady=(0, 15))
+        
+        tk.Button(
+            export_frame,
+            text="Export Excel",
+            font=("Arial", 9),
+            bg="#2c974b",
+            fg="white",
+            relief=tk.FLAT,
+            cursor="hand2",
+            command=self.export_users_excel
+        ).pack(side=tk.LEFT, padx=5, ipady=4, ipadx=8)
+        
+        tk.Button(
+            export_frame,
+            text="Export PDF",
+            font=("Arial", 9),
+            bg="#d35400",
+            fg="white",
+            relief=tk.FLAT,
+            cursor="hand2",
+            command=self.export_users_pdf
+        ).pack(side=tk.LEFT, padx=5, ipady=4, ipadx=8)
         
         # Add button
         tk.Button(
@@ -271,7 +329,7 @@ class AdminDashboard:
             relief=tk.FLAT,
             cursor="hand2",
             command=self.add_user
-        ).pack(anchor=tk.W, pady=(0, 15), ipady=6, ipadx=15)
+        ).pack(anchor=tk.W, pady=(10, 15), ipady=6, ipadx=15)
         
         # Users list
         try:
@@ -340,7 +398,6 @@ class AdminDashboard:
         )
         status_label.pack(anchor=tk.W, pady=10)
         
-        # Sync button
         if is_online:
             tk.Button(
                 self.content_frame,
@@ -395,7 +452,6 @@ class AdminDashboard:
     def create_article(self):
         """Create new article dialog"""
         import uuid
-        from utils.security import hash_password
         
         dialog = tk.Toplevel(self.root)
         dialog.title("Create Article")
@@ -499,11 +555,98 @@ class AdminDashboard:
             if self.network_checker.is_connected():
                 # Attempt sync
                 pass
-        except:
+        except Exception:
             pass
         
-        # Schedule next refresh (every 30 seconds)
         self.root.after(30000, self.refresh_data)
+
+    def export_articles_excel(self):
+        """Export articles to Excel"""
+        try:
+            articles = self.db.get_all_articles()
+            if not articles:
+                messagebox.showinfo("Export", "No articles to export")
+                return
+            
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".xlsx",
+                filetypes=[("Excel Files", "*.xlsx")],
+                title="Save Articles Excel"
+            )
+            if not file_path:
+                return
+            
+            path = self.exporter.export_articles_to_excel(articles, output_path=file_path)
+            messagebox.showinfo("Export", f"Articles exported to Excel:\n{path}")
+        except Exception as e:
+            self.logger.error(f"Export articles Excel failed: {e}")
+            messagebox.showerror("Export Error", f"Failed to export articles to Excel:\n{e}")
+
+    def export_articles_pdf(self):
+        """Export articles to PDF"""
+        try:
+            articles = self.db.get_all_articles()
+            if not articles:
+                messagebox.showinfo("Export", "No articles to export")
+                return
+            
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".pdf",
+                filetypes=[("PDF Files", "*.pdf")],
+                title="Save Articles PDF"
+            )
+            if not file_path:
+                return
+            
+            path = self.exporter.export_articles_to_pdf(articles, output_path=file_path)
+            messagebox.showinfo("Export", f"Articles exported to PDF:\n{path}")
+        except Exception as e:
+            self.logger.error(f"Export articles PDF failed: {e}")
+            messagebox.showerror("Export Error", f"Failed to export articles to PDF:\n{e}")
+
+    def export_users_excel(self):
+        """Export users to Excel"""
+        try:
+            users = self.db.get_all_users()
+            if not users:
+                messagebox.showinfo("Export", "No users to export")
+                return
+            
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".xlsx",
+                filetypes=[("Excel Files", "*.xlsx")],
+                title="Save Users Excel"
+            )
+            if not file_path:
+                return
+            
+            path = self.exporter.export_users_to_excel(users, output_path=file_path)
+            messagebox.showinfo("Export", f"Users exported to Excel:\n{path}")
+        except Exception as e:
+            self.logger.error(f"Export users Excel failed: {e}")
+            messagebox.showerror("Export Error", f"Failed to export users to Excel:\n{e}")
+
+    def export_users_pdf(self):
+        """Export users to PDF"""
+        try:
+            users = self.db.get_all_users()
+            if not users:
+                messagebox.showinfo("Export", "No users to export")
+                return
+            
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".pdf",
+                filetypes=[("PDF Files", "*.pdf")],
+                title="Save Users PDF"
+            )
+            if not file_path:
+                return
+            
+            path = self.exporter.export_users_to_pdf(users, output_path=file_path)
+            messagebox.showinfo("Export", f"Users exported to PDF:\n{path}")
+        except Exception as e:
+            self.logger.error(f"Export users PDF failed: {e}")
+            messagebox.showerror("Export Error", f"Failed to export users to PDF:\n{e}")
 
     def logout(self):
         """Logout user"""
