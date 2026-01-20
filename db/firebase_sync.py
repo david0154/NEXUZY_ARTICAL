@@ -1,127 +1,261 @@
+#!/usr/bin/env python3
 """
 Firebase Synchronization Engine
+Handles cloud data synchronization with Firestore
 Author: Manoj Konar (monoj@nexuzy.in)
 """
 
-import logging
-from typing import List
+import sys
+import os
 from datetime import datetime
-import firebase_admin
-from firebase_admin import credentials, firestore
-from config import FIREBASE_CONFIG_PATH, SYNC_SYNCED
-from db.models import Article, User
-from utils.network import is_online
+from typing import List, Dict, Optional
 
-logger = logging.getLogger(__name__)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+try:
+    import firebase_admin
+    from firebase_admin import credentials, firestore, auth
+    HAS_FIREBASE = True
+except ImportError:
+    HAS_FIREBASE = False
+
+from utils.logger import Logger
+from utils.network import NetworkChecker
+from utils.security import verify_password, hash_password
+
 
 class FirebaseSync:
-    """Firebase Firestore synchronization manager"""
-    
+    """Manages Firebase Firestore synchronization and authentication"""
+
     def __init__(self):
+        self.logger = Logger(__name__)
         self.db = None
+        self.auth = None
         self.initialized = False
-        self.init_firebase()
-    
-    def init_firebase(self) -> bool:
-        """Initialize Firebase connection"""
+        self.network = NetworkChecker()
+
+    def initialize(self) -> bool:
+        """
+        Initialize Firebase connection
+        Requires firebase_config.json in project root
+        
+        Returns:
+            bool: True if initialization successful
+        """
+        if not HAS_FIREBASE:
+            self.logger.warning("firebase_admin not installed. Install with: pip install firebase-admin")
+            return False
+        
         try:
-            if not FIREBASE_CONFIG_PATH.exists():
-                logger.error(f"Firebase config not found: {FIREBASE_CONFIG_PATH}")
-                logger.info("App will work offline. Create firebase_config.json to enable sync.")
+            config_path = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                'firebase_config.json'
+            )
+            
+            if not os.path.exists(config_path):
+                self.logger.warning(f"Firebase config not found at {config_path}")
+                self.logger.info("App will work offline. Download firebase_config.json from Firebase Console.")
                 return False
             
-            # Initialize Firebase (only if not already initialized)
+            # Initialize Firebase (prevent multiple initialization)
             if not firebase_admin._apps:
-                cred = credentials.Certificate(str(FIREBASE_CONFIG_PATH))
+                cred = credentials.Certificate(config_path)
                 firebase_admin.initialize_app(cred)
             
             self.db = firestore.client()
+            self.auth = auth
             self.initialized = True
-            logger.info("Firebase initialized successfully")
+            self.logger.info("Firebase initialized successfully")
             return True
+        
         except Exception as e:
-            logger.error(f"Firebase initialization failed: {e}")
+            self.logger.error(f"Firebase initialization failed: {e}")
             self.initialized = False
             return False
-    
-    def sync_articles(self, pending_articles: List[Article]) -> int:
+
+    def authenticate_user(self, username: str, password: str) -> Optional[Dict]:
         """
-        Sync pending articles to Firebase
+        Authenticate user with Firebase
         
         Args:
-            pending_articles: List of articles with sync_status = 0
-            
-        Returns:
-            int: Number of successfully synced articles
-        """
-        if not self.initialized or not is_online():
-            logger.warning("Cannot sync: Firebase not initialized or no internet")
-            return 0
+            username: User's username
+            password: User's password
         
-        synced_count = 0
+        Returns:
+            dict: User data if authenticated, None otherwise
+        """
+        if not self.initialized or not self.network.is_connected():
+            self.logger.debug("Firebase not initialized or offline")
+            return None
+        
         try:
-            for article in pending_articles:
-                try:
-                    # Upload to Firebase
-                    self.db.collection('articles').document(article.id).set(
-                        article.to_firebase_dict()
-                    )
-                    synced_count += 1
-                    logger.info(f"Article synced: {article.id}")
-                except Exception as e:
-                    logger.error(f"Failed to sync article {article.id}: {e}")
-                    continue
+            # Query Firestore for user
+            docs = self.db.collection('users').where(
+                'username', '==', username
+            ).stream()
             
-            logger.info(f"Sync completed: {synced_count}/{len(pending_articles)} articles")
-            return synced_count
+            for doc in docs:
+                user_data = doc.to_dict()
+                user_data['uid'] = doc.id
+                
+                # Verify password if stored
+                if 'password_hash' in user_data:
+                    if verify_password(password, user_data['password_hash']):
+                        return user_data
+                
+                return None
+            
+            return None
+        
         except Exception as e:
-            logger.error(f"Sync operation failed: {e}")
-            return 0
-    
-    def sync_users(self, users: List[User]) -> int:
+            self.logger.error(f"Firebase authentication failed: {e}")
+            return None
+
+    def create_user(self, user_id: str, username: str, password: str, role: str = 'user') -> bool:
         """
-        Sync users to Firebase
+        Create new user in Firebase
         
         Args:
-            users: List of users
-            
+            user_id: Unique user ID
+            username: Username
+            password: Password (will be hashed)
+            role: User role (admin/user)
+        
         Returns:
-            int: Number of successfully synced users
+            bool: Success status
         """
-        if not self.initialized or not is_online():
-            logger.warning("Cannot sync: Firebase not initialized or no internet")
+        if not self.initialized or not self.network.is_connected():
+            self.logger.debug("Firebase not initialized or offline")
+            return False
+        
+        try:
+            password_hash = hash_password(password)
+            
+            self.db.collection('users').document(user_id).set({
+                'username': username,
+                'password_hash': password_hash,
+                'role': role,
+                'created_at': datetime.now().isoformat(),
+                'last_login': None,
+                'id': user_id
+            })
+            
+            self.logger.info(f"User created in Firebase: {username}")
+            return True
+        
+        except Exception as e:
+            self.logger.error(f"Failed to create user: {e}")
+            return False
+
+    def update_user_last_login(self, user_id: str) -> bool:
+        """
+        Update user's last login timestamp
+        
+        Args:
+            user_id: User ID
+        
+        Returns:
+            bool: Success status
+        """
+        if not self.initialized or not self.network.is_connected():
+            return False
+        
+        try:
+            self.db.collection('users').document(user_id).update({
+                'last_login': datetime.now().isoformat()
+            })
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to update last login: {e}")
+            return False
+
+    def sync_articles(self, articles: List[Dict]) -> int:
+        """
+        Sync articles to Firebase
+        
+        Args:
+            articles: List of article dictionaries
+        
+        Returns:
+            int: Number of synced articles
+        """
+        if not self.initialized or not self.network.is_connected():
+            self.logger.debug("Cannot sync: Firebase offline")
             return 0
         
-        synced_count = 0
+        synced = 0
+        try:
+            for article in articles:
+                if article.get('sync_status', 0) == 0:  # Only sync pending
+                    try:
+                        self.db.collection('articles').document(article['id']).set({
+                            'id': article['id'],
+                            'article_name': article.get('article_name', ''),
+                            'mould': article.get('mould', ''),
+                            'size': article.get('size', ''),
+                            'gender': article.get('gender', ''),
+                            'created_by': article.get('created_by', ''),
+                            'created_at': article.get('created_at', datetime.now().isoformat()),
+                            'updated_at': article.get('updated_at', datetime.now().isoformat()),
+                            'sync_status': 1
+                        }, merge=True)
+                        synced += 1
+                    except Exception as e:
+                        self.logger.error(f"Failed to sync article {article['id']}: {e}")
+            
+            if synced > 0:
+                self.logger.info(f"Synced {synced} articles to Firebase")
+            return synced
+        
+        except Exception as e:
+            self.logger.error(f"Article sync failed: {e}")
+            return 0
+
+    def sync_users(self, users: List[Dict]) -> int:
+        """
+        Sync users to Firebase (metadata only, no passwords)
+        
+        Args:
+            users: List of user dictionaries
+        
+        Returns:
+            int: Number of synced users
+        """
+        if not self.initialized or not self.network.is_connected():
+            return 0
+        
+        synced = 0
         try:
             for user in users:
                 try:
-                    self.db.collection('users').document(user.id).set({
-                        'username': user.username,
-                        'role': user.role,
-                        'created_at': user.created_at.isoformat() if user.created_at else None
+                    # Upload user metadata only (no password)
+                    self.db.collection('users').document(user['id']).set({
+                        'username': user.get('username', ''),
+                        'role': user.get('role', 'user'),
+                        'created_at': user.get('created_at', datetime.now().isoformat()),
+                        'last_login': user.get('last_login'),
+                        'id': user['id']
                     }, merge=True)
-                    synced_count += 1
-                    logger.info(f"User synced: {user.username}")
+                    synced += 1
                 except Exception as e:
-                    logger.error(f"Failed to sync user {user.username}: {e}")
-                    continue
+                    self.logger.error(f"Failed to sync user {user['id']}: {e}")
             
-            logger.info(f"User sync completed: {synced_count}/{len(users)} users")
-            return synced_count
+            if synced > 0:
+                self.logger.info(f"Synced {synced} users to Firebase")
+            return synced
+        
         except Exception as e:
-            logger.error(f"User sync failed: {e}")
+            self.logger.error(f"User sync failed: {e}")
             return 0
-    
-    def download_articles(self) -> List[Article]:
+
+    def get_articles_from_firebase(self) -> List[Dict]:
         """
-        Download latest articles from Firebase
+        Download articles from Firebase
         
         Returns:
-            List of Article objects from Firebase
+            List of article dictionaries
         """
-        if not self.initialized or not is_online():
-            logger.warning("Cannot download: Firebase not initialized or no internet")
+        if not self.initialized or not self.network.is_connected():
             return []
         
         try:
@@ -129,35 +263,23 @@ class FirebaseSync:
             docs = self.db.collection('articles').stream()
             
             for doc in docs:
-                data = doc.to_dict()
-                article = Article(
-                    id=doc.id,
-                    article_name=data.get('article_name', ''),
-                    mould=data.get('mould', ''),
-                    size=data.get('size', ''),
-                    gender=data.get('gender', ''),
-                    created_by=data.get('created_by', ''),
-                    created_at=datetime.fromisoformat(data.get('created_at', datetime.now().isoformat())),
-                    updated_at=datetime.fromisoformat(data.get('updated_at', datetime.now().isoformat())),
-                    sync_status=SYNC_SYNCED
-                )
-                articles.append(article)
+                articles.append(doc.to_dict())
             
-            logger.info(f"Downloaded {len(articles)} articles from Firebase")
+            self.logger.info(f"Downloaded {len(articles)} articles from Firebase")
             return articles
+        
         except Exception as e:
-            logger.error(f"Download articles failed: {e}")
+            self.logger.error(f"Failed to download articles: {e}")
             return []
-    
-    def download_users(self) -> List[User]:
+
+    def get_users_from_firebase(self) -> List[Dict]:
         """
-        Download latest users from Firebase
+        Download users from Firebase
         
         Returns:
-            List of User objects from Firebase
+            List of user dictionaries
         """
-        if not self.initialized or not is_online():
-            logger.warning("Cannot download: Firebase not initialized or no internet")
+        if not self.initialized or not self.network.is_connected():
             return []
         
         try:
@@ -165,44 +287,62 @@ class FirebaseSync:
             docs = self.db.collection('users').stream()
             
             for doc in docs:
-                data = doc.to_dict()
-                user = User(
-                    id=doc.id,
-                    username=data.get('username', ''),
-                    password_hash='',  # Don't store password from cloud
-                    role=data.get('role', 'user'),
-                    created_at=datetime.fromisoformat(data.get('created_at', datetime.now().isoformat()))
-                )
-                users.append(user)
+                users.append(doc.to_dict())
             
-            logger.info(f"Downloaded {len(users)} users from Firebase")
+            self.logger.info(f"Downloaded {len(users)} users from Firebase")
             return users
+        
         except Exception as e:
-            logger.error(f"Download users failed: {e}")
+            self.logger.error(f"Failed to download users: {e}")
             return []
-    
+
     def delete_article(self, article_id: str) -> bool:
         """
         Delete article from Firebase
         
         Args:
-            article_id: Article ID to delete
-            
+            article_id: Article ID
+        
         Returns:
             bool: Success status
         """
-        if not self.initialized or not is_online():
-            logger.warning("Cannot delete: Firebase not initialized or no internet")
+        if not self.initialized or not self.network.is_connected():
             return False
         
         try:
             self.db.collection('articles').document(article_id).delete()
-            logger.info(f"Article deleted from Firebase: {article_id}")
+            self.logger.info(f"Article deleted from Firebase: {article_id}")
             return True
         except Exception as e:
-            logger.error(f"Delete article failed: {e}")
+            self.logger.error(f"Failed to delete article: {e}")
             return False
-    
+
+    def delete_user(self, user_id: str) -> bool:
+        """
+        Delete user from Firebase
+        
+        Args:
+            user_id: User ID
+        
+        Returns:
+            bool: Success status
+        """
+        if not self.initialized or not self.network.is_connected():
+            return False
+        
+        try:
+            self.db.collection('users').document(user_id).delete()
+            self.logger.info(f"User deleted from Firebase: {user_id}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to delete user: {e}")
+            return False
+
     def is_connected(self) -> bool:
-        """Check if Firebase is accessible"""
-        return self.initialized and is_online()
+        """
+        Check if Firebase is accessible
+        
+        Returns:
+            bool: True if Firebase initialized and internet available
+        """
+        return self.initialized and self.network.is_connected()
