@@ -78,7 +78,7 @@ class AdminDashboard:
             ("👥 Users", self.show_users),
             ("🔄 Sync Status", self.show_sync_status),
             ("⚙️ Settings", self.show_settings),
-            ("🚪 Logout", self.logout),
+            ("🚺 Logout", self.logout),
         ]
         
         for btn_text, btn_command in buttons:
@@ -127,11 +127,14 @@ class AdminDashboard:
         # Statistics
         try:
             total_users = len(self.db.get_all_users())
-            total_articles = len(self.db.get_all_articles())
+            total_articles = self.db.get_articles_count()
+            pending_sync = self.db.get_pending_articles_count()
             is_online = self.network_checker.is_connected()
-        except Exception:
+        except Exception as e:
+            self.logger.error(f"Error fetching dashboard stats: {e}")
             total_users = 0
             total_articles = 0
+            pending_sync = 0
             is_online = False
         
         stats_frame = tk.Frame(self.content_frame, bg="white")
@@ -140,6 +143,7 @@ class AdminDashboard:
         stats = [
             ("Total Users", str(total_users), "👥"),
             ("Total Articles", str(total_articles), "📄"),
+            ("Pending Sync", str(pending_sync), "⏳"),
             ("Status", "Online" if is_online else "Offline", "🌐"),
         ]
         
@@ -201,7 +205,7 @@ class AdminDashboard:
         
         tk.Button(
             export_frame,
-            text="Export Excel",
+            text="📊 Export Excel",
             font=("Arial", 9),
             bg="#2c974b",
             fg="white",
@@ -212,7 +216,7 @@ class AdminDashboard:
         
         tk.Button(
             export_frame,
-            text="Export PDF",
+            text="📄 Export PDF",
             font=("Arial", 9),
             bg="#d35400",
             fg="white",
@@ -237,22 +241,33 @@ class AdminDashboard:
         try:
             articles = self.db.get_all_articles()
             if articles:
-                columns = ("ID", "Name", "Mould", "Size", "Gender", "Created By", "Date")
+                columns = ("ID", "Name", "Mould", "Size", "Gender", "Created By", "Date", "Sync")
                 tree = ttk.Treeview(self.content_frame, columns=columns, height=15, show="headings")
                 
+                # Column widths
+                tree.column("ID", width=80)
+                tree.column("Name", width=150)
+                tree.column("Mould", width=100)
+                tree.column("Size", width=60)
+                tree.column("Gender", width=80)
+                tree.column("Created By", width=100)
+                tree.column("Date", width=100)
+                tree.column("Sync", width=70)
+                
                 for col in columns:
-                    tree.column(col, width=100)
                     tree.heading(col, text=col)
                 
                 for article in articles:
+                    sync_status = "Synced" if article.sync_status == 1 else "Pending"
                     tree.insert("", tk.END, values=(
-                        article['id'][:8],
-                        article['article_name'],
-                        article['mould'],
-                        article['size'],
-                        article['gender'],
-                        article['created_by'][:8],
-                        article['created_at'][:10]
+                        article.id[:8],
+                        article.article_name,
+                        article.mould,
+                        article.size,
+                        article.gender,
+                        article.created_by[:8],
+                        article.created_at.strftime("%Y-%m-%d"),
+                        sync_status
                     ))
                 
                 tree.pack(fill=tk.BOTH, expand=True)
@@ -299,7 +314,7 @@ class AdminDashboard:
         
         tk.Button(
             export_frame,
-            text="Export Excel",
+            text="📊 Export Excel",
             font=("Arial", 9),
             bg="#2c974b",
             fg="white",
@@ -310,7 +325,7 @@ class AdminDashboard:
         
         tk.Button(
             export_frame,
-            text="Export PDF",
+            text="📄 Export PDF",
             font=("Arial", 9),
             bg="#d35400",
             fg="white",
@@ -343,11 +358,14 @@ class AdminDashboard:
                     tree.heading(col, text=col)
                 
                 for user in users:
+                    last_login = user.last_login.strftime("%Y-%m-%d") if user.last_login else "Never"
+                    created = user.created_at.strftime("%Y-%m-%d") if user.created_at else "N/A"
+                    
                     tree.insert("", tk.END, values=(
-                        user['username'],
-                        user['role'].upper(),
-                        user['last_login'][:10] if user['last_login'] else "Never",
-                        user['created_at'][:10]
+                        user.username,
+                        user.role.upper(),
+                        last_login,
+                        created
                     ))
                 
                 tree.pack(fill=tk.BOTH, expand=True)
@@ -386,8 +404,10 @@ class AdminDashboard:
         title.pack(anchor=tk.W, pady=(0, 20))
         
         is_online = self.network_checker.is_connected()
-        status_text = "✅ Online - Ready to sync" if is_online else "❌ Offline - Local only"
-        status_color = "green" if is_online else "orange"
+        firebase_initialized = self.firebase.initialized if self.firebase else False
+        
+        status_text = "✅ Online - Ready to sync" if is_online and firebase_initialized else "❌ Offline - Local only"
+        status_color = "green" if is_online and firebase_initialized else "orange"
         
         status_label = tk.Label(
             self.content_frame,
@@ -398,7 +418,41 @@ class AdminDashboard:
         )
         status_label.pack(anchor=tk.W, pady=10)
         
-        if is_online:
+        # Sync statistics
+        try:
+            pending_count = self.db.get_pending_articles_count()
+            total_count = self.db.get_articles_count()
+            synced_count = total_count - pending_count
+            
+            stats_frame = tk.Frame(self.content_frame, bg="#f9f9f9", relief=tk.FLAT, bd=1)
+            stats_frame.pack(fill=tk.X, pady=15, padx=10)
+            
+            tk.Label(
+                stats_frame,
+                text=f"Total Articles: {total_count}",
+                font=("Arial", 10),
+                bg="#f9f9f9"
+            ).pack(anchor=tk.W, padx=15, pady=5)
+            
+            tk.Label(
+                stats_frame,
+                text=f"Synced: {synced_count}",
+                font=("Arial", 10),
+                bg="#f9f9f9",
+                fg="green"
+            ).pack(anchor=tk.W, padx=15, pady=5)
+            
+            tk.Label(
+                stats_frame,
+                text=f"Pending: {pending_count}",
+                font=("Arial", 10),
+                bg="#f9f9f9",
+                fg="orange" if pending_count > 0 else "green"
+            ).pack(anchor=tk.W, padx=15, pady=5)
+        except Exception as e:
+            self.logger.error(f"Error getting sync stats: {e}")
+        
+        if is_online and firebase_initialized:
             tk.Button(
                 self.content_frame,
                 text="🔄 Sync Now",
@@ -409,13 +463,14 @@ class AdminDashboard:
                 cursor="hand2",
                 command=self.sync_data
             ).pack(anchor=tk.W, pady=10, ipady=6, ipadx=15)
-        
-        tk.Label(
-            self.content_frame,
-            text="Pending Syncs: 0",
-            font=("Arial", 10),
-            bg="white"
-        ).pack(anchor=tk.W, pady=10)
+        else:
+            tk.Label(
+                self.content_frame,
+                text="⚠️ Cannot sync: " + ("No internet connection" if not is_online else "Firebase not configured"),
+                font=("Arial", 10),
+                bg="white",
+                fg="orange"
+            ).pack(anchor=tk.W, pady=10)
 
     def show_settings(self):
         """Show settings"""
@@ -440,7 +495,7 @@ class AdminDashboard:
             ("App Name", APP_NAME),
             ("User", self.user['username']),
             ("Role", self.user['role'].upper()),
-            ("Login Time", str(self.user['login_time'])[:19]),
+            ("User ID", self.user.get('id', 'N/A')[:16]),
         ]
         
         for label, value in settings:
@@ -452,41 +507,80 @@ class AdminDashboard:
     def create_article(self):
         """Create new article dialog"""
         import uuid
+        from db.models import Article
         
         dialog = tk.Toplevel(self.root)
         dialog.title("Create Article")
-        dialog.geometry("400x350")
+        dialog.geometry("400x450")
         dialog.resizable(False, False)
         
         tk.Label(dialog, text="Create New Article", font=("Arial", 12, "bold")).pack(pady=10)
         
-        fields = {}
-        for label in ["Article Name", "Mould", "Size", "Gender"]:
-            tk.Label(dialog, text=f"{label}:", font=("Arial", 10)).pack(anchor=tk.W, padx=20, pady=(10, 3))
-            entry = tk.Entry(dialog, font=("Arial", 10), width=35)
-            entry.pack(padx=20, ipady=5)
-            fields[label.lower().replace(" ", "_")] = entry
+        # Article Name
+        tk.Label(dialog, text="Article Name:", font=("Arial", 10)).pack(anchor=tk.W, padx=20, pady=(10, 3))
+        article_name_entry = tk.Entry(dialog, font=("Arial", 10), width=35)
+        article_name_entry.pack(padx=20, ipady=5)
+        
+        # Mould
+        tk.Label(dialog, text="Mould:", font=("Arial", 10)).pack(anchor=tk.W, padx=20, pady=(10, 3))
+        mould_entry = tk.Entry(dialog, font=("Arial", 10), width=35)
+        mould_entry.pack(padx=20, ipady=5)
+        
+        # Size
+        tk.Label(dialog, text="Size:", font=("Arial", 10)).pack(anchor=tk.W, padx=20, pady=(10, 3))
+        size_var = tk.StringVar(value="M")
+        size_frame = tk.Frame(dialog)
+        size_frame.pack(anchor=tk.W, padx=20)
+        
+        sizes = ["XS", "S", "M", "L", "XL", "XXL", "Free"]
+        for size in sizes:
+            tk.Radiobutton(size_frame, text=size, variable=size_var, value=size).pack(side=tk.LEFT)
+        
+        # Gender
+        tk.Label(dialog, text="Gender:", font=("Arial", 10)).pack(anchor=tk.W, padx=20, pady=(10, 3))
+        gender_var = tk.StringVar(value="Unisex")
+        gender_frame = tk.Frame(dialog)
+        gender_frame.pack(anchor=tk.W, padx=20)
+        
+        for gender in ["Male", "Female", "Unisex"]:
+            tk.Radiobutton(gender_frame, text=gender, variable=gender_var, value=gender).pack(side=tk.LEFT, padx=5)
         
         def save_article():
             try:
-                article_id = str(uuid.uuid4())
-                self.db.create_article(
-                    article_id,
-                    fields["article_name"].get(),
-                    fields["mould"].get(),
-                    fields["size"].get(),
-                    fields["gender"].get(),
-                    self.user['id']
+                article_name = article_name_entry.get().strip()
+                mould = mould_entry.get().strip()
+                size = size_var.get()
+                gender = gender_var.get()
+                
+                if not article_name or not mould:
+                    messagebox.showerror("Error", "Article name and mould are required")
+                    return
+                
+                article = Article(
+                    id=str(uuid.uuid4()),
+                    article_name=article_name,
+                    mould=mould,
+                    size=size,
+                    gender=gender,
+                    created_by=self.user['id'],
+                    created_at=datetime.now(),
+                    updated_at=datetime.now(),
+                    sync_status=0
                 )
-                messagebox.showinfo("Success", "Article created successfully")
-                dialog.destroy()
-                self.show_articles()
+                
+                if self.db.add_article(article):
+                    messagebox.showinfo("Success", "Article created successfully")
+                    dialog.destroy()
+                    self.show_articles()
+                else:
+                    messagebox.showerror("Error", "Failed to create article")
             except Exception as e:
+                self.logger.error(f"Error creating article: {e}")
                 messagebox.showerror("Error", f"Failed to create article: {e}")
         
         tk.Button(
             dialog,
-            text="Save",
+            text="Save Article",
             font=("Arial", 10),
             bg=PRIMARY_COLOR,
             fg="white",
@@ -496,6 +590,7 @@ class AdminDashboard:
     def add_user(self):
         """Add new user dialog"""
         from utils.security import hash_password
+        from db.models import User
         import uuid
         
         dialog = tk.Toplevel(self.root)
@@ -522,17 +617,39 @@ class AdminDashboard:
         
         def save_user():
             try:
-                user_id = str(uuid.uuid4())
-                self.db.create_or_update_user(
-                    user_id,
-                    username_entry.get(),
-                    hash_password(password_entry.get()),
-                    role_var.get()
+                username = username_entry.get().strip()
+                password = password_entry.get()
+                role = role_var.get()
+                
+                if not username or not password:
+                    messagebox.showerror("Error", "Username and password are required")
+                    return
+                
+                if len(password) < 6:
+                    messagebox.showerror("Error", "Password must be at least 6 characters")
+                    return
+                
+                user = User(
+                    id=str(uuid.uuid4()),
+                    username=username,
+                    password_hash=hash_password(password),
+                    role=role,
+                    created_at=datetime.now(),
+                    last_login=None
                 )
-                messagebox.showinfo("Success", "User created successfully")
-                dialog.destroy()
-                self.show_users()
+                
+                if self.db.add_user(user):
+                    # Try to sync to Firebase if online
+                    if self.firebase and self.firebase.is_connected():
+                        self.firebase.create_user(user.id, username, password, role)
+                    
+                    messagebox.showinfo("Success", f"User '{username}' created successfully")
+                    dialog.destroy()
+                    self.show_users()
+                else:
+                    messagebox.showerror("Error", "Failed to add user (username may already exist)")
             except Exception as e:
+                self.logger.error(f"Error adding user: {e}")
                 messagebox.showerror("Error", f"Failed to add user: {e}")
         
         tk.Button(
@@ -546,18 +663,46 @@ class AdminDashboard:
 
     def sync_data(self):
         """Sync data with Firebase"""
-        messagebox.showinfo("Sync", "Synchronization started in background")
-        self.logger.info("Manual sync initiated")
+        try:
+            if not self.firebase or not self.firebase.is_connected():
+                messagebox.showwarning("Sync", "Cannot sync: Firebase not available or no internet")
+                return
+            
+            # Sync pending articles
+            pending_articles = self.db.get_pending_articles()
+            if pending_articles:
+                articles_dict = [article.to_dict() for article in pending_articles]
+                synced_count = self.firebase.sync_articles(articles_dict)
+                
+                # Mark synced articles
+                for article in pending_articles[:synced_count]:
+                    self.db.mark_article_synced(article.id)
+                
+                messagebox.showinfo("Sync", f"Successfully synced {synced_count} article(s)")
+                self.show_sync_status()
+            else:
+                messagebox.showinfo("Sync", "All articles are already synced")
+            
+            self.logger.info(f"Manual sync completed: {len(pending_articles)} articles")
+        except Exception as e:
+            self.logger.error(f"Sync failed: {e}")
+            messagebox.showerror("Sync Error", f"Failed to sync data: {e}")
 
     def refresh_data(self):
         """Refresh dashboard data periodically"""
         try:
-            if self.network_checker.is_connected():
-                # Attempt sync
-                pass
-        except Exception:
-            pass
+            if self.firebase and self.firebase.is_connected():
+                # Auto-sync in background
+                pending = self.db.get_pending_articles()
+                if pending:
+                    articles_dict = [a.to_dict() for a in pending]
+                    synced = self.firebase.sync_articles(articles_dict)
+                    for article in pending[:synced]:
+                        self.db.mark_article_synced(article.id)
+        except Exception as e:
+            self.logger.debug(f"Auto-sync error: {e}")
         
+        # Schedule next refresh
         self.root.after(30000, self.refresh_data)
 
     def export_articles_excel(self):
@@ -568,16 +713,21 @@ class AdminDashboard:
                 messagebox.showinfo("Export", "No articles to export")
                 return
             
+            # Convert Article objects to dictionaries
+            articles_dict = [article.to_dict() for article in articles]
+            
             file_path = filedialog.asksaveasfilename(
                 defaultextension=".xlsx",
                 filetypes=[("Excel Files", "*.xlsx")],
-                title="Save Articles Excel"
+                title="Save Articles Excel",
+                initialfile=f"Articles_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
             )
             if not file_path:
                 return
             
-            path = self.exporter.export_articles_to_excel(articles, output_path=file_path)
+            path = self.exporter.export_articles_to_excel(articles_dict, output_path=file_path)
             messagebox.showinfo("Export", f"Articles exported to Excel:\n{path}")
+            self.logger.info(f"Articles exported to Excel: {path}")
         except Exception as e:
             self.logger.error(f"Export articles Excel failed: {e}")
             messagebox.showerror("Export Error", f"Failed to export articles to Excel:\n{e}")
@@ -590,16 +740,21 @@ class AdminDashboard:
                 messagebox.showinfo("Export", "No articles to export")
                 return
             
+            # Convert Article objects to dictionaries
+            articles_dict = [article.to_dict() for article in articles]
+            
             file_path = filedialog.asksaveasfilename(
                 defaultextension=".pdf",
                 filetypes=[("PDF Files", "*.pdf")],
-                title="Save Articles PDF"
+                title="Save Articles PDF",
+                initialfile=f"Articles_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
             )
             if not file_path:
                 return
             
-            path = self.exporter.export_articles_to_pdf(articles, output_path=file_path)
+            path = self.exporter.export_articles_to_pdf(articles_dict, output_path=file_path)
             messagebox.showinfo("Export", f"Articles exported to PDF:\n{path}")
+            self.logger.info(f"Articles exported to PDF: {path}")
         except Exception as e:
             self.logger.error(f"Export articles PDF failed: {e}")
             messagebox.showerror("Export Error", f"Failed to export articles to PDF:\n{e}")
@@ -612,16 +767,26 @@ class AdminDashboard:
                 messagebox.showinfo("Export", "No users to export")
                 return
             
+            # Convert User objects to dictionaries (without password hash)
+            users_dict = []
+            for user in users:
+                user_data = user.to_dict()
+                # Remove password hash for security
+                user_data.pop('password_hash', None)
+                users_dict.append(user_data)
+            
             file_path = filedialog.asksaveasfilename(
                 defaultextension=".xlsx",
                 filetypes=[("Excel Files", "*.xlsx")],
-                title="Save Users Excel"
+                title="Save Users Excel",
+                initialfile=f"Users_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
             )
             if not file_path:
                 return
             
-            path = self.exporter.export_users_to_excel(users, output_path=file_path)
+            path = self.exporter.export_users_to_excel(users_dict, output_path=file_path)
             messagebox.showinfo("Export", f"Users exported to Excel:\n{path}")
+            self.logger.info(f"Users exported to Excel: {path}")
         except Exception as e:
             self.logger.error(f"Export users Excel failed: {e}")
             messagebox.showerror("Export Error", f"Failed to export users to Excel:\n{e}")
@@ -634,16 +799,25 @@ class AdminDashboard:
                 messagebox.showinfo("Export", "No users to export")
                 return
             
+            # Convert User objects to dictionaries (without password hash)
+            users_dict = []
+            for user in users:
+                user_data = user.to_dict()
+                user_data.pop('password_hash', None)
+                users_dict.append(user_data)
+            
             file_path = filedialog.asksaveasfilename(
                 defaultextension=".pdf",
                 filetypes=[("PDF Files", "*.pdf")],
-                title="Save Users PDF"
+                title="Save Users PDF",
+                initialfile=f"Users_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
             )
             if not file_path:
                 return
             
-            path = self.exporter.export_users_to_pdf(users, output_path=file_path)
+            path = self.exporter.export_users_to_pdf(users_dict, output_path=file_path)
             messagebox.showinfo("Export", f"Users exported to PDF:\n{path}")
+            self.logger.info(f"Users exported to PDF: {path}")
         except Exception as e:
             self.logger.error(f"Export users PDF failed: {e}")
             messagebox.showerror("Export Error", f"Failed to export users to PDF:\n{e}")
