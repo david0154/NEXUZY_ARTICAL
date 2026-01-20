@@ -2,7 +2,7 @@
 
 > **Offline-First Python Tkinter Windows Application**  
 > Admin + User Dashboard | Firebase + Local DB Sync  
-> Developed by **David** | davidj@nexuzy.in  
+> Developed by **David** | david@nexuzy.in  
 > **Nexuzy** © 2026
 
 ---
