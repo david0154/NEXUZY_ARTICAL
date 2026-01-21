@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
-"""
-Automated Build Script for NEXUZY ARTICAL
+"""Automated Build Script for NEXUZY ARTICAL
+
 Creates executable using PyInstaller as described in README
 Author: Manoj Konar (monoj@nexuzy.in)
+Enhanced with:
+- Comprehensive dependency collection
+- Hidden imports for all modules
+- Proper asset packaging
+- Scrollbar and UI element support
+- Image handling libraries
 """
 
 import os
@@ -16,6 +22,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 BUILD_DIR = PROJECT_ROOT / "build"
 DIST_DIR = PROJECT_ROOT / "dist"
 ASSETS_DIR = PROJECT_ROOT / "assets"
+CONFIG_DIR = PROJECT_ROOT / "config"
 MAIN_SCRIPT = PROJECT_ROOT / "main.py"
 
 # Build configuration
@@ -47,6 +54,14 @@ def check_prerequisites():
         print("   Install with: pip install pyinstaller")
         return False
     
+    # Check if Pillow (PIL) is installed for image support
+    try:
+        import PIL
+        print(f"✅ Pillow installed for image support")
+    except ImportError:
+        print("⚠️  WARNING: Pillow not installed")
+        print("   Install with: pip install Pillow")
+    
     # Check if icon exists
     if ICON_PATH.exists():
         print(f"✅ Icon found: {ICON_PATH}")
@@ -57,8 +72,17 @@ def check_prerequisites():
     # Check if assets directory exists
     if ASSETS_DIR.exists():
         print(f"✅ Assets directory found")
+        # List assets
+        assets = list(ASSETS_DIR.glob('*'))
+        print(f"   Found {len(assets)} asset file(s)")
     else:
         print(f"⚠️  WARNING: Assets directory not found")
+    
+    # Check if config directory exists
+    if CONFIG_DIR.exists():
+        print(f"✅ Config directory found")
+    else:
+        print(f"⚠️  WARNING: Config directory not found")
     
     return True
 
@@ -70,7 +94,11 @@ def clean_previous_builds():
         DIST_DIR,
         BUILD_DIR / "dist",
         BUILD_DIR / "build",
-        PROJECT_ROOT / "__pycache__"
+        PROJECT_ROOT / "__pycache__",
+        PROJECT_ROOT / "auth" / "__pycache__",
+        PROJECT_ROOT / "dashboard" / "__pycache__",
+        PROJECT_ROOT / "db" / "__pycache__",
+        PROJECT_ROOT / "utils" / "__pycache__",
     ]
     
     files_to_clean = [
@@ -113,22 +141,87 @@ def build_executable():
     if ICON_PATH.exists():
         pyinstaller_cmd.extend([f"--icon={ICON_PATH}"])
     
-    # Add hidden imports for dependencies that might not be auto-detected
+    # Comprehensive hidden imports for all dependencies
     hidden_imports = [
+        # Firebase and Google Cloud
         "firebase_admin",
+        "firebase_admin.credentials",
+        "firebase_admin.firestore",
+        "firebase_admin.auth",
+        "google.cloud.firestore",
+        "google.cloud.firestore_v1",
+        "google.auth",
+        "google.auth.transport.requests",
+        
+        # Image processing
+        "PIL",
         "PIL._tkinter_finder",
+        "PIL.Image",
+        "PIL.ImageTk",
+        "PIL.ImageDraw",
+        "PIL.ImageFont",
+        
+        # Excel/Office
         "openpyxl",
+        "openpyxl.styles",
+        "openpyxl.workbook",
+        "openpyxl.worksheet",
+        
+        # PDF generation
         "reportlab",
+        "reportlab.pdfgen",
+        "reportlab.lib",
+        
+        # Tkinter components
+        "tkinter",
+        "tkinter.ttk",
+        "tkinter.filedialog",
+        "tkinter.messagebox",
+        "tkinter.scrolledtext",
+        
+        # Standard library modules
+        "json",
+        "sqlite3",
+        "datetime",
+        "pathlib",
+        "logging",
+        "uuid",
+        "hashlib",
+        "random",
+        "string",
     ]
     
     for module in hidden_imports:
         pyinstaller_cmd.extend([f"--hidden-import={module}"])
     
-    # Add data files (assets)
+    # Collect all packages (ensures all dependencies are included)
+    collect_all_packages = [
+        "firebase_admin",
+        "google-cloud-firestore",
+        "PIL",
+        "openpyxl",
+        "reportlab",
+    ]
+    
+    for package in collect_all_packages:
+        pyinstaller_cmd.extend([f"--collect-all={package}"])
+    
+    # Add data files (assets and config)
     if ASSETS_DIR.exists():
         pyinstaller_cmd.extend([
             f"--add-data={ASSETS_DIR}{os.pathsep}assets"
         ])
+    
+    if CONFIG_DIR.exists():
+        pyinstaller_cmd.extend([
+            f"--add-data={CONFIG_DIR}{os.pathsep}config"
+        ])
+    
+    # Additional optimization options
+    pyinstaller_cmd.extend([
+        "--noupx",                      # Disable UPX compression (faster build, larger size)
+        "--log-level=INFO",             # Show build progress
+    ])
     
     # Add main script
     pyinstaller_cmd.append(str(MAIN_SCRIPT))
@@ -185,16 +278,21 @@ def print_summary():
     print(f"   {exe_path}\n")
     print(f"📝 Next Steps:")
     print(f"   1. Test the executable by running it")
-    print(f"   2. Create installer using Inno Setup (optional)")
-    print(f"   3. Distribute {exe_name} to users\n")
+    print(f"   2. Verify login with Remember Me functionality")
+    print(f"   3. Test article creation with image picker")
+    print(f"   4. Check Fides-XXXXXX ID generation")
+    print(f"   5. Create installer using Inno Setup (optional)")
+    print(f"   6. Distribute {exe_name} to users\n")
     print(f"⚠️  Important:")
     print(f"   - Ensure firebase_config.json is in the same directory as the EXE")
-    print(f"   - The EXE will create 'data' and 'logs' folders automatically")
-    print(f"   - First-time users should run the EXE as administrator\n")
+    print(f"   - The EXE will create 'data', 'logs', and 'config' folders automatically")
+    print(f"   - First-time users should run the EXE as administrator")
+    print(f"   - Saved credentials are stored in config/saved_credentials.json")
+    print(f"   - Each article gets a unique Fides-XXXXXX identifier\n")
 
 def main():
     """Main build process"""
-    print_header(f"NEXUZY ARTICAL - Build Script v1.0")
+    print_header(f"NEXUZY ARTICAL - Enhanced Build Script v2.0")
     print(f"Project: {PROJECT_ROOT}")
     
     # Step 1: Check prerequisites
