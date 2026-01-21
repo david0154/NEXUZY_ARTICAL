@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""User Dashboard Module - FIXED WINDOW SIZING
+"""User Dashboard - COMPLETE WORKING VERSION
+
+All features:
+- Proper window sizing (fills 100% of available space)
+- View articles
+- Create articles
+- FTP image upload
+- Firebase sync
+- All buttons working
 """
 
 import tkinter as tk
@@ -12,8 +20,10 @@ import string
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import APP_NAME, PRIMARY_COLOR
+from config import APP_NAME, PRIMARY_COLOR, APP_VERSION, COMPANY
 from utils.ftp_uploader import get_ftp_uploader
+from db.models import Article
+import uuid
 
 
 class UserDashboard:
@@ -31,7 +41,7 @@ class UserDashboard:
         self.root.deiconify()
         self.setup_ui()
         self.refresh_data()
-        self.logger.info(f"User dashboard initialized: {user['username']}")
+        self.logger.info(f"User dashboard initialized for: {user['username']}")
 
     def generate_article_id(self):
         while True:
@@ -45,7 +55,6 @@ class UserDashboard:
                 return article_id
 
     def setup_ui(self):
-        """Setup UI - FIXED SIZING"""
         for widget in self.root.winfo_children():
             widget.destroy()
 
@@ -81,7 +90,10 @@ class UserDashboard:
 
         buttons = [
             ("📊 Dashboard", self.show_dashboard),
-            ("📄 My Articles", self.show_my_articles),
+            ("📄 My Articles", self.show_articles),
+            ("🔄 Sync Status", self.show_sync_status),
+            ("ℹ️ About", self.show_about),
+            ("⚙️ Settings", self.show_settings),
             ("🚪 Logout", self.logout),
         ]
 
@@ -103,7 +115,7 @@ class UserDashboard:
             btn.bind("<Enter>", lambda e, b=btn: b.config(bg="#e0e0e0"))
             btn.bind("<Leave>", lambda e, b=btn: b.config(bg="#f0f0f0"))
 
-        # CRITICAL FIX: Content frame directly without canvas
+        # FIXED: Content frame without canvas - fills 100% space
         self.content_frame = tk.Frame(main_frame, bg="white")
         self.content_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=20, pady=20)
 
@@ -115,12 +127,51 @@ class UserDashboard:
 
     def show_dashboard(self):
         self.clear_content()
+
         tk.Label(
             self.content_frame,
-            text="Dashboard",
+            text="Dashboard Overview",
             font=("Arial", 16, "bold"),
-            bg="white"
+            bg="white",
+            fg="#333"
         ).pack(anchor=tk.W, pady=(0, 20))
+
+        try:
+            my_articles = self.db.get_articles_by_user(self.user['id'])
+            total_articles = len(my_articles)
+            pending_sync = len([a for a in my_articles if a.sync_status == 0])
+            is_online = self.network_checker.is_connected()
+        except Exception as e:
+            self.logger.error(f"Error fetching stats: {e}")
+            total_articles = pending_sync = 0
+            is_online = False
+
+        stats_frame = tk.Frame(self.content_frame, bg="white")
+        stats_frame.pack(fill=tk.X, pady=10)
+
+        stats = [
+            ("My Articles", str(total_articles), "📄"),
+            ("Pending Sync", str(pending_sync), "⏳"),
+            ("Status", "Online" if is_online else "Offline", "🌐"),
+        ]
+
+        for label, value, emoji in stats:
+            stat_card = tk.Frame(stats_frame, bg="#f9f9f9", relief=tk.SOLID, bd=1)
+            stat_card.pack(fill=tk.X, pady=8, padx=5)
+            tk.Label(
+                stat_card,
+                text=f"{emoji} {label}: {value}",
+                font=("Arial", 13, "bold"),
+                bg="#f9f9f9"
+            ).pack(anchor=tk.W, padx=20, pady=15)
+
+        tk.Label(
+            self.content_frame,
+            text="Quick Actions",
+            font=("Arial", 14, "bold"),
+            bg="white",
+            fg="#333"
+        ).pack(anchor=tk.W, pady=(30, 15))
 
         tk.Button(
             self.content_frame,
@@ -131,37 +182,137 @@ class UserDashboard:
             relief=tk.FLAT,
             cursor="hand2",
             command=self.create_article
-        ).pack(fill=tk.X, pady=5, ipady=10)
+        ).pack(anchor=tk.W, ipady=10, ipadx=20)
 
-    def show_my_articles(self):
+    def show_articles(self):
         self.clear_content()
+
+        header_frame = tk.Frame(self.content_frame, bg="white")
+        header_frame.pack(fill=tk.X, pady=(0, 15))
+
         tk.Label(
-            self.content_frame,
+            header_frame,
             text="My Articles",
             font=("Arial", 16, "bold"),
             bg="white"
-        ).pack(anchor=tk.W, pady=(0, 20))
+        ).pack(side=tk.LEFT)
+
+        tk.Button(
+            header_frame,
+            text="+ Add Article",
+            font=("Arial", 10),
+            bg=PRIMARY_COLOR,
+            fg="white",
+            relief=tk.FLAT,
+            cursor="hand2",
+            command=self.create_article
+        ).pack(side=tk.RIGHT, ipady=6, ipadx=12)
+
+        try:
+            articles = self.db.get_articles_by_user(self.user['id'])
+
+            if articles:
+                columns = ("ID", "Name", "Mould", "Size", "Gender", "Date", "Sync")
+
+                tree_frame = tk.Frame(self.content_frame, bg="white")
+                tree_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+
+                tree = ttk.Treeview(tree_frame, columns=columns, height=18, show="headings")
+
+                tree.column("ID", width=100)
+                tree.column("Name", width=200)
+                tree.column("Mould", width=120)
+                tree.column("Size", width=100)
+                tree.column("Gender", width=100)
+                tree.column("Date", width=120)
+                tree.column("Sync", width=80)
+
+                for col in columns:
+                    tree.heading(col, text=col)
+
+                for article in articles:
+                    sync_status = "Synced" if article.sync_status == 1 else "Pending"
+                    tree.insert("", tk.END, values=(
+                        article.id[:8],
+                        article.article_name,
+                        article.mould,
+                        article.size,
+                        article.gender,
+                        article.created_at.strftime("%Y-%m-%d"),
+                        sync_status
+                    ))
+
+                scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=tree.yview)
+                tree.configure(yscroll=scrollbar.set)
+
+                tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+                scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            else:
+                tk.Label(
+                    self.content_frame,
+                    text="No articles found. Create your first article!",
+                    font=("Arial", 12),
+                    bg="white",
+                    fg="#999"
+                ).pack(pady=40)
+
+                tk.Button(
+                    self.content_frame,
+                    text="+ Create First Article",
+                    font=("Arial", 11),
+                    bg=PRIMARY_COLOR,
+                    fg="white",
+                    relief=tk.FLAT,
+                    cursor="hand2",
+                    command=self.create_article
+                ).pack(ipady=10, ipadx=20)
+
+        except Exception as e:
+            self.logger.error(f"Error loading articles: {e}")
+            tk.Label(
+                self.content_frame,
+                text=f"Error: {e}",
+                font=("Arial", 11),
+                bg="white",
+                fg="red"
+            ).pack(pady=30)
 
     def create_article(self):
-        """Create article dialog"""
         dialog = tk.Toplevel(self.root)
         dialog.title("Create Article")
         dialog.geometry("500x650")
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
-        
+
         article_id = self.generate_article_id()
 
         header = tk.Frame(dialog, bg=PRIMARY_COLOR)
         header.pack(fill=tk.X, pady=(0, 15))
-        tk.Label(header, text="Create New Article", font=("Arial", 13, "bold"), 
-                bg=PRIMARY_COLOR, fg="white").pack(pady=15)
+        tk.Label(
+            header,
+            text="Create New Article",
+            font=("Arial", 13, "bold"),
+            bg=PRIMARY_COLOR,
+            fg="white"
+        ).pack(pady=15)
 
         id_frame = tk.Frame(dialog, bg="#f0f0f0")
         id_frame.pack(fill=tk.X, padx=20, pady=(0, 15))
-        tk.Label(id_frame, text=f"Article ID: {article_id}", font=("Arial", 10, "bold"), 
-                bg="#f0f0f0", fg=PRIMARY_COLOR).pack(pady=5)
+        tk.Label(
+            id_frame,
+            text=f"Article ID: {article_id}",
+            font=("Arial", 10, "bold"),
+            bg="#f0f0f0",
+            fg=PRIMARY_COLOR
+        ).pack(pady=5)
+        tk.Label(
+            id_frame,
+            text=f"Created by: {self.user['username']}",
+            font=("Arial", 9),
+            bg="#f0f0f0",
+            fg="#666"
+        ).pack(pady=(0, 5))
 
         tk.Label(dialog, text="Article Name:", font=("Arial", 10)).pack(anchor=tk.W, padx=20, pady=(5, 2))
         article_name_entry = tk.Entry(dialog, font=("Arial", 10), width=45)
@@ -182,12 +333,13 @@ class UserDashboard:
         for gender in ["Male", "Female", "Unisex"]:
             tk.Radiobutton(gender_frame, text=gender, variable=gender_var, value=gender).pack(side=tk.LEFT, padx=5)
 
+        tk.Label(dialog, text="Image (optional):", font=("Arial", 10)).pack(anchor=tk.W, padx=20, pady=(10, 2))
         image_frame = tk.Frame(dialog)
-        image_frame.pack(pady=15, padx=20, fill=tk.X)
-        
+        image_frame.pack(fill=tk.X, padx=20, pady=5)
+
         image_label = tk.Label(image_frame, text="No image selected", font=("Arial", 9), fg="gray")
         image_label.pack(side=tk.LEFT, padx=5)
-        
+
         def select_image():
             file_path = filedialog.askopenfilename(
                 title="Select Article Image",
@@ -197,7 +349,7 @@ class UserDashboard:
                 self.selected_image_path = file_path
                 filename = file_path.split('/')[-1].split('\\')[-1]
                 image_label.config(text=filename, fg="green")
-        
+
         tk.Button(
             image_frame,
             text="📷 Select Image",
@@ -214,11 +366,15 @@ class UserDashboard:
 
         def save_article():
             try:
-                if not all([article_name_entry.get().strip(), mould_entry.get().strip(), 
-                           size_entry.get().strip()]):
-                    messagebox.showerror("Error", "Please fill all fields")
+                article_name = article_name_entry.get().strip()
+                mould = mould_entry.get().strip()
+                size = size_entry.get().strip()
+                gender = gender_var.get()
+
+                if not all([article_name, mould, size]):
+                    messagebox.showerror("Error", "Please fill all required fields")
                     return
-                
+
                 image_url = None
                 if self.selected_image_path:
                     status_label.config(text="⏳ Uploading image...", fg="blue")
@@ -227,22 +383,35 @@ class UserDashboard:
                     if image_url:
                         status_label.config(text="✅ Image uploaded!", fg="green")
                     dialog.update()
-                
-                self.db.create_article(
-                    article_id,
-                    article_name_entry.get().strip(),
-                    mould_entry.get().strip(),
-                    size_entry.get().strip(),
-                    gender_var.get(),
-                    self.user['id'],
-                    image_url
+
+                article = Article(
+                    id=article_id,
+                    article_name=article_name,
+                    mould=mould,
+                    size=size,
+                    gender=gender,
+                    created_by=self.user['id'],
+                    created_at=datetime.now(),
+                    updated_at=datetime.now(),
+                    sync_status=0,
+                    image_path=image_url
                 )
-                
-                messagebox.showinfo("Success", f"Article created!\nID: {article_id}")
-                dialog.destroy()
-                self.selected_image_path = None
-                self.show_my_articles()
+
+                if self.db.add_article(article):
+                    if self.firebase and self.firebase.is_connected():
+                        synced = self.firebase.sync_articles([article.to_dict()])
+                        if synced:
+                            self.db.mark_article_synced(article.id)
+
+                    messagebox.showinfo("Success", f"Article created!\nID: {article_id}")
+                    dialog.destroy()
+                    self.selected_image_path = None
+                    self.show_articles()
+                else:
+                    messagebox.showerror("Error", "Failed to create article")
+
             except Exception as e:
+                self.logger.error(f"Error creating article: {e}")
                 messagebox.showerror("Error", f"Failed: {e}")
 
         tk.Button(
@@ -258,9 +427,164 @@ class UserDashboard:
 
         dialog.wait_window()
 
-    def logout(self):
-        if messagebox.askyesno("Logout", "Are you sure?"):
-            self.logout_callback()
+    def show_sync_status(self):
+        self.clear_content()
+
+        tk.Label(
+            self.content_frame,
+            text="Synchronization Status",
+            font=("Arial", 16, "bold"),
+            bg="white"
+        ).pack(anchor=tk.W, pady=(0, 20))
+
+        is_online = self.network_checker.is_connected()
+        firebase_init = self.firebase.initialized if self.firebase else False
+
+        status_text = "✅ Online - Ready to sync" if is_online and firebase_init else "❌ Offline"
+        status_color = "green" if is_online and firebase_init else "orange"
+
+        tk.Label(
+            self.content_frame,
+            text=status_text,
+            font=("Arial", 12, "bold"),
+            bg="white",
+            fg=status_color
+        ).pack(anchor=tk.W, pady=10)
+
+        try:
+            my_articles = self.db.get_articles_by_user(self.user['id'])
+            total_count = len(my_articles)
+            pending_count = len([a for a in my_articles if a.sync_status == 0])
+            synced_count = total_count - pending_count
+
+            stats_frame = tk.Frame(self.content_frame, bg="#f9f9f9", relief=tk.FLAT, bd=1)
+            stats_frame.pack(fill=tk.X, pady=15, padx=10)
+
+            tk.Label(stats_frame, text=f"My Articles: {total_count}", font=("Arial", 10), bg="#f9f9f9").pack(anchor=tk.W, padx=15, pady=5)
+            tk.Label(stats_frame, text=f"Synced: {synced_count}", font=("Arial", 10), bg="#f9f9f9", fg="green").pack(anchor=tk.W, padx=15, pady=5)
+            tk.Label(stats_frame, text=f"Pending: {pending_count}", font=("Arial", 10), bg="#f9f9f9", fg="orange" if pending_count > 0 else "green").pack(anchor=tk.W, padx=15, pady=5)
+        except Exception as e:
+            self.logger.error(f"Error getting sync stats: {e}")
+
+        if is_online and firebase_init:
+            tk.Button(
+                self.content_frame,
+                text="🔄 Sync Now",
+                font=("Arial", 10),
+                bg=PRIMARY_COLOR,
+                fg="white",
+                relief=tk.FLAT,
+                cursor="hand2",
+                command=self.sync_data
+            ).pack(anchor=tk.W, pady=10, ipady=6, ipadx=15)
+
+    def show_settings(self):
+        self.clear_content()
+
+        tk.Label(
+            self.content_frame,
+            text="Settings",
+            font=("Arial", 16, "bold"),
+            bg="white"
+        ).pack(anchor=tk.W, pady=(0, 20))
+
+        tk.Label(
+            self.content_frame,
+            text="User Settings",
+            font=("Arial", 11, "bold"),
+            bg="white"
+        ).pack(anchor=tk.W, pady=(10, 5))
+
+        settings = [
+            ("Username", self.user['username']),
+            ("Role", self.user['role'].upper()),
+            ("App Version", APP_VERSION),
+        ]
+
+        for label, value in settings:
+            frame = tk.Frame(self.content_frame, bg="white")
+            frame.pack(fill=tk.X, pady=5)
+            tk.Label(frame, text=f"{label}:", font=("Arial", 10), bg="white", width=20, anchor=tk.W).pack(side=tk.LEFT)
+            tk.Label(frame, text=value, font=("Arial", 10), bg="white", fg="#666").pack(side=tk.LEFT)
+
+    def show_about(self):
+        self.clear_content()
+
+        tk.Label(
+            self.content_frame,
+            text="About",
+            font=("Arial", 16, "bold"),
+            bg="white",
+            fg="#333"
+        ).pack(anchor=tk.W, pady=(0, 20))
+
+        tk.Label(
+            self.content_frame,
+            text=f"{APP_NAME} v{APP_VERSION}",
+            font=("Arial", 12, "bold"),
+            bg="white"
+        ).pack(anchor=tk.W, pady=(0, 5))
+
+        tk.Label(
+            self.content_frame,
+            text=f"Company: {COMPANY}",
+            font=("Arial", 10),
+            bg="white"
+        ).pack(anchor=tk.W, pady=(0, 10))
+
+        repo_link = tk.Label(
+            self.content_frame,
+            text="github.com/david0154/NEXUZY_ARTICAL",
+            font=("Arial", 10, "underline"),
+            bg="white",
+            fg="#1f6feb",
+            cursor="hand2"
+        )
+        repo_link.pack(anchor=tk.W, pady=(0, 10))
+
+        def open_repo(event=None):
+            import webbrowser
+            webbrowser.open("https://github.com/david0154/NEXUZY_ARTICAL")
+
+        repo_link.bind("<Button-1>", open_repo)
+
+    def sync_data(self):
+        try:
+            if not self.firebase or not self.firebase.is_connected():
+                messagebox.showwarning("Sync", "Cannot sync: Firebase not available")
+                return
+
+            my_articles = self.db.get_articles_by_user(self.user['id'])
+            pending_articles = [a for a in my_articles if a.sync_status == 0]
+
+            if pending_articles:
+                articles_dict = [article.to_dict() for article in pending_articles]
+                synced_count = self.firebase.sync_articles(articles_dict)
+                for article in pending_articles[:synced_count]:
+                    self.db.mark_article_synced(article.id)
+
+                messagebox.showinfo("Sync", f"Synced {synced_count} article(s)")
+                self.show_sync_status()
+            else:
+                messagebox.showinfo("Sync", "All articles synced")
+        except Exception as e:
+            messagebox.showerror("Sync Error", f"Failed: {e}")
 
     def refresh_data(self):
-        pass
+        try:
+            if self.firebase and self.firebase.is_connected():
+                my_articles = self.db.get_articles_by_user(self.user['id'])
+                pending = [a for a in my_articles if a.sync_status == 0]
+                if pending:
+                    articles_dict = [a.to_dict() for a in pending]
+                    synced = self.firebase.sync_articles(articles_dict)
+                    for article in pending[:synced]:
+                        self.db.mark_article_synced(article.id)
+        except Exception as e:
+            self.logger.debug(f"Auto-sync error: {e}")
+        self.root.after(30000, self.refresh_data)
+
+    def logout(self):
+        if messagebox.askyesno("Logout", "Are you sure?"):
+            self.logger.info(f"User {self.user['username']} logged out")
+            self.logout_callback()
