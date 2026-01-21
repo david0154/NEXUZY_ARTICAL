@@ -77,6 +77,7 @@ class AdminDashboard:
             ("📄 Articles", self.show_articles),
             ("👥 Users", self.show_users),
             ("🔄 Sync Status", self.show_sync_status),
+            ("ℹ️ About", self.show_about),
             ("⚙️ Settings", self.show_settings),
             ("🚺 Logout", self.logout),
         ]
@@ -324,6 +325,8 @@ class AdminDashboard:
             tk.Label(self.content_frame, text=f"Error loading articles: {e}", font=("Arial", 10), bg="white", fg="red").pack(pady=20)
 
     def edit_selected_article(self):
+        from db.models import Article
+
         article_id = self._get_selected_article_id()
         if not article_id:
             messagebox.showwarning("Edit", "Please select an article first")
@@ -336,23 +339,23 @@ class AdminDashboard:
 
         dialog = tk.Toplevel(self.root)
         dialog.title("Edit Article")
-        dialog.geometry("420x420")
+        dialog.geometry("450x520")
         dialog.resizable(False, False)
 
         tk.Label(dialog, text="Edit Article", font=("Arial", 12, "bold")).pack(pady=10)
 
         tk.Label(dialog, text="Article Name:").pack(anchor=tk.W, padx=20, pady=(10, 3))
-        name_entry = tk.Entry(dialog, font=("Arial", 10), width=38)
+        name_entry = tk.Entry(dialog, font=("Arial", 10), width=40)
         name_entry.insert(0, article.article_name)
         name_entry.pack(padx=20, ipady=5)
 
         tk.Label(dialog, text="Mould:").pack(anchor=tk.W, padx=20, pady=(10, 3))
-        mould_entry = tk.Entry(dialog, font=("Arial", 10), width=38)
+        mould_entry = tk.Entry(dialog, font=("Arial", 10), width=40)
         mould_entry.insert(0, article.mould)
         mould_entry.pack(padx=20, ipady=5)
 
         tk.Label(dialog, text="Size:").pack(anchor=tk.W, padx=20, pady=(10, 3))
-        size_entry = tk.Entry(dialog, font=("Arial", 10), width=38)
+        size_entry = tk.Entry(dialog, font=("Arial", 10), width=40)
         size_entry.insert(0, article.size)
         size_entry.pack(padx=20, ipady=5)
 
@@ -363,6 +366,26 @@ class AdminDashboard:
         for gender in ["Male", "Female", "Unisex"]:
             tk.Radiobutton(gender_frame, text=gender, variable=gender_var, value=gender).pack(side=tk.LEFT, padx=5)
 
+        # Image selection
+        tk.Label(dialog, text="Image (optional):").pack(anchor=tk.W, padx=20, pady=(10, 3))
+        image_frame = tk.Frame(dialog)
+        image_frame.pack(fill=tk.X, padx=20)
+
+        image_path_var = tk.StringVar(value=article.image_path or "")
+
+        image_entry = tk.Entry(image_frame, textvariable=image_path_var, font=("Arial", 9), width=30, state="readonly")
+        image_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=4)
+
+        def browse_image():
+            path = filedialog.askopenfilename(
+                title="Select Article Image",
+                filetypes=[("Image Files", "*.png;*.jpg;*.jpeg;*.bmp;*.gif"), ("All Files", "*.*")]
+            )
+            if path:
+                image_path_var.set(path)
+
+        tk.Button(image_frame, text="Browse...", font=("Arial", 9), command=browse_image).pack(side=tk.LEFT, padx=(5, 0))
+
         def save_changes():
             try:
                 ok = self.db.update_article(
@@ -370,7 +393,8 @@ class AdminDashboard:
                     name_entry.get().strip(),
                     mould_entry.get().strip(),
                     size_entry.get().strip(),
-                    gender_var.get()
+                    gender_var.get(),
+                    image_path_var.get() or None,
                 )
                 if not ok:
                     messagebox.showerror("Edit", "Failed to update article")
@@ -378,12 +402,14 @@ class AdminDashboard:
 
                 # Firebase sync (update)
                 if self.firebase and self.firebase.is_connected():
-                    self.firebase.update_article(article_id, {
+                    updates = {
                         'article_name': name_entry.get().strip(),
                         'mould': mould_entry.get().strip(),
                         'size': size_entry.get().strip(),
                         'gender': gender_var.get(),
-                    })
+                        'image_path': image_path_var.get() or None,
+                    }
+                    self.firebase.update_article(article_id, updates)
                     self.db.mark_article_synced(article_id)
 
                 messagebox.showinfo("Edit", "Article updated successfully")
@@ -427,7 +453,7 @@ class AdminDashboard:
 
         dialog = tk.Toplevel(self.root)
         dialog.title("Create Article")
-        dialog.geometry("400x400")
+        dialog.geometry("450x480")
         dialog.resizable(False, False)
 
         tk.Label(dialog, text="Create New Article", font=("Arial", 12, "bold")).pack(pady=10)
@@ -452,12 +478,33 @@ class AdminDashboard:
         for gender in ["Male", "Female", "Unisex"]:
             tk.Radiobutton(gender_frame, text=gender, variable=gender_var, value=gender).pack(side=tk.LEFT, padx=5)
 
+        # Image selection
+        tk.Label(dialog, text="Image (optional):", font=("Arial", 10)).pack(anchor=tk.W, padx=20, pady=(10, 3))
+        image_frame = tk.Frame(dialog)
+        image_frame.pack(fill=tk.X, padx=20)
+
+        image_path_var = tk.StringVar(value="")
+
+        image_entry = tk.Entry(image_frame, textvariable=image_path_var, font=("Arial", 9), width=30, state="readonly")
+        image_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=4)
+
+        def browse_image():
+            path = filedialog.askopenfilename(
+                title="Select Article Image",
+                filetypes=[("Image Files", "*.png;*.jpg;*.jpeg;*.bmp;*.gif"), ("All Files", "*.*")]
+            )
+            if path:
+                image_path_var.set(path)
+
+        tk.Button(image_frame, text="Browse...", font=("Arial", 9), command=browse_image).pack(side=tk.LEFT, padx=(5, 0))
+
         def save_article():
             try:
                 article_name = article_name_entry.get().strip()
                 mould = mould_entry.get().strip()
                 size = size_entry.get().strip()
                 gender = gender_var.get()
+                image_path = image_path_var.get() or None
 
                 if not article_name or not mould:
                     messagebox.showerror("Error", "Article name and mould are required")
@@ -476,7 +523,8 @@ class AdminDashboard:
                     created_by=self.user['id'],
                     created_at=datetime.now(),
                     updated_at=datetime.now(),
-                    sync_status=0
+                    sync_status=0,
+                    image_path=image_path
                 )
 
                 if self.db.add_article(article):
@@ -637,6 +685,54 @@ class AdminDashboard:
             frame.pack(fill=tk.X, pady=5)
             tk.Label(frame, text=f"{label}:", font=("Arial", 10), bg="white", width=20, anchor=tk.W).pack(side=tk.LEFT)
             tk.Label(frame, text=value, font=("Arial", 10), bg="white", fg="#666").pack(side=tk.LEFT)
+
+    def show_about(self):
+        """Show About section with project and developer details"""
+        from config import APP_VERSION, DEVELOPER_NAME, DEVELOPER_EMAIL, COMPANY
+
+        self.clear_content()
+
+        title = tk.Label(self.content_frame, text="About", font=("Arial", 16, "bold"), bg="white", fg="#333")
+        title.pack(anchor=tk.W, pady=(0, 20))
+
+        tk.Label(self.content_frame, text=f"{APP_NAME} v{APP_VERSION}", font=("Arial", 12, "bold"), bg="white").pack(anchor=tk.W, pady=(0, 5))
+        tk.Label(self.content_frame, text=f"Company: {COMPANY}", font=("Arial", 10), bg="white").pack(anchor=tk.W, pady=(0, 2))
+        tk.Label(self.content_frame, text=f"Developer: {DEVELOPER_NAME}", font=("Arial", 10), bg="white").pack(anchor=tk.W, pady=(0, 2))
+        tk.Label(self.content_frame, text=f"Contact: {DEVELOPER_EMAIL}", font=("Arial", 10), bg="white").pack(anchor=tk.W, pady=(0, 10))
+
+        open_source_label = tk.Label(
+            self.content_frame,
+            text="Open Source Repository:",
+            font=("Arial", 11, "bold"),
+            bg="white"
+        )
+        open_source_label.pack(anchor=tk.W, pady=(10, 3))
+
+        repo_link = tk.Label(
+            self.content_frame,
+            text="github.com/david0154/NEXUZY_ARTICAL",
+            font=("Arial", 10, "underline"),
+            bg="white",
+            fg="#1f6feb",
+            cursor="hand2"
+        )
+        repo_link.pack(anchor=tk.W, pady=(0, 10))
+
+        def open_repo(event=None):
+            import webbrowser
+            webbrowser.open("https://github.com/david0154/NEXUZY_ARTICAL")
+
+        repo_link.bind("<Button-1>", open_repo)
+
+        tk.Label(
+            self.content_frame,
+            text="This is an offline-first Tkinter application with local SQLite DB and optional Firebase sync.",
+            font=("Arial", 10),
+            bg="white",
+            fg="#555",
+            wraplength=600,
+            justify=tk.LEFT,
+        ).pack(anchor=tk.W, pady=(10, 0))
 
     def sync_data(self):
         try:

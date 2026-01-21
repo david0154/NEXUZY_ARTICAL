@@ -1,5 +1,4 @@
-"""
-Data models for NEXUZY ARTICAL
+"""Data models for NEXUZY ARTICAL
 Author: Manoj Konar (monoj@nexuzy.in)
 """
 
@@ -45,6 +44,7 @@ class Article:
     created_at: datetime
     updated_at: Optional[datetime] = None
     sync_status: int = 0  # 0 = pending, 1 = synced
+    image_path: Optional[str] = None  # Path to article image
     
     def to_dict(self) -> dict:
         return {
@@ -56,7 +56,8 @@ class Article:
             'created_by': self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-            'sync_status': self.sync_status
+            'sync_status': self.sync_status,
+            'image_path': self.image_path
         }
     
     def to_firebase_dict(self) -> dict:
@@ -69,4 +70,5 @@ class Article:
             'created_by': self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'image_path': self.image_path
         }

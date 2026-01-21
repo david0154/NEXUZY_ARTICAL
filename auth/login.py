@@ -20,7 +20,7 @@ import os
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import APP_NAME, PRIMARY_COLOR
+from config import APP_NAME, PRIMARY_COLOR, ASSETS_DIR
 from utils.security import hash_password, verify_password
 
 
@@ -34,6 +34,7 @@ class LoginWindow:
         self.network_checker = network_checker
         self.on_success = on_success_callback
         self.logger = logger
+        self._logo_image = None  # keep reference to avoid GC
 
         # Clear parent and build login UI inside it
         for w in self.parent.winfo_children():
@@ -48,6 +49,22 @@ class LoginWindow:
         self.setup_ui()
         self.parent.protocol("WM_DELETE_WINDOW", self.on_closing)
 
+    def _load_logo(self, parent):
+        """Load and place logo.png if available (non-fatal if missing)."""
+        try:
+            from PIL import Image, ImageTk
+            logo_path = ASSETS_DIR / "logo.png"
+            if logo_path.exists():
+                img = Image.open(str(logo_path))
+                # Resize for header
+                img = img.resize((60, 60), Image.LANCZOS)
+                self._logo_image = ImageTk.PhotoImage(img)
+
+                logo_label = tk.Label(parent, image=self._logo_image, bg=PRIMARY_COLOR)
+                logo_label.pack(side=tk.LEFT, padx=(20, 10))
+        except Exception as e:
+            self.logger.debug(f"Login logo load skipped: {e}")
+
     def setup_ui(self):
         """Create login UI"""
         # Header
@@ -55,23 +72,29 @@ class LoginWindow:
         header_frame.pack(fill=tk.X)
         header_frame.pack_propagate(False)
 
+        # Logo on the left (if available)
+        self._load_logo(header_frame)
+
+        title_container = tk.Frame(header_frame, bg=PRIMARY_COLOR)
+        title_container.pack(side=tk.LEFT, padx=10)
+
         title_label = tk.Label(
-            header_frame,
+            title_container,
             text=f"{APP_NAME}",
             font=("Arial", 24, "bold"),
             bg=PRIMARY_COLOR,
             fg="white"
         )
-        title_label.pack(pady=(18, 2))
+        title_label.pack(pady=(18, 2), anchor=tk.W)
 
         subtitle_label = tk.Label(
-            header_frame,
+            title_container,
             text="Login to Your Account",
             font=("Arial", 10),
             bg=PRIMARY_COLOR,
             fg="white"
         )
-        subtitle_label.pack()
+        subtitle_label.pack(anchor=tk.W)
 
         # Body
         body = tk.Frame(self.container, bg="white")
