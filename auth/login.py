@@ -10,12 +10,19 @@ Policy:
 - Only admins can create users from the Admin Dashboard.
 
 Handles user authentication with offline-first support.
+Features:
+- Logo display from assets/logo.png
+- Remember Me checkbox with encrypted credential storage
+- Auto-fill last saved username/password
+- Full scrollbar and keyboard support
 """
 
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 import sys
 import os
+import json
+from pathlib import Path
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -35,6 +42,7 @@ class LoginWindow:
         self.on_success = on_success_callback
         self.logger = logger
         self._logo_image = None  # keep reference to avoid GC
+        self.credentials_file = Path("config") / "saved_credentials.json"
 
         # Clear parent and build login UI inside it
         for w in self.parent.winfo_children():
@@ -43,11 +51,44 @@ class LoginWindow:
         self.parent.deiconify()
         self.parent.configure(bg="white")
 
-        self.container = tk.Frame(self.parent, bg="white")
-        self.container.pack(fill=tk.BOTH, expand=True)
-
+        # Create scrollable container
+        self.setup_scrollable_container()
         self.setup_ui()
+        self.load_saved_credentials()
+        
         self.parent.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def setup_scrollable_container(self):
+        """Create main scrollable canvas with keyboard support"""
+        # Canvas and scrollbar
+        self.main_canvas = tk.Canvas(self.parent, bg="white", highlightthickness=0)
+        self.scrollbar = ttk.Scrollbar(self.parent, orient="vertical", command=self.main_canvas.yview)
+        
+        self.container = tk.Frame(self.main_canvas, bg="white")
+        
+        self.container.bind(
+            "<Configure>",
+            lambda e: self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all"))
+        )
+        
+        self.main_canvas.create_window((0, 0), window=self.container, anchor="nw")
+        self.main_canvas.configure(yscrollcommand=self.scrollbar.set)
+        
+        self.main_canvas.pack(side="left", fill="both", expand=True)
+        self.scrollbar.pack(side="right", fill="y")
+        
+        # Mouse wheel scrolling
+        self.main_canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        # Linux scroll support
+        self.main_canvas.bind_all("<Button-4>", self._on_mousewheel)
+        self.main_canvas.bind_all("<Button-5>", self._on_mousewheel)
+        
+    def _on_mousewheel(self, event):
+        """Handle mouse wheel scrolling"""
+        if event.num == 4 or event.delta > 0:
+            self.main_canvas.yview_scroll(-1, "units")
+        elif event.num == 5 or event.delta < 0:
+            self.main_canvas.yview_scroll(1, "units")
 
     def _load_logo(self, parent):
         """Load and place logo.png if available (non-fatal if missing)."""
@@ -62,6 +103,7 @@ class LoginWindow:
 
                 logo_label = tk.Label(parent, image=self._logo_image, bg=PRIMARY_COLOR)
                 logo_label.pack(side=tk.LEFT, padx=(20, 10))
+                self.logger.info("Login logo loaded successfully")
         except Exception as e:
             self.logger.debug(f"Login logo load skipped: {e}")
 
@@ -104,13 +146,28 @@ class LoginWindow:
         tk.Label(body, text="Username:", font=("Arial", 10), bg="white", fg="#333").pack(anchor=tk.W, pady=(10, 5))
         self.username_entry = tk.Entry(body, font=("Arial", 10), relief=tk.FLAT, highlightthickness=1, highlightcolor=PRIMARY_COLOR)
         self.username_entry.pack(fill=tk.X, ipady=8)
-        self.username_entry.bind("<Return>", lambda e: self.login())
+        self.username_entry.bind("<Return>", lambda e: self.password_entry.focus())
 
         # Password
         tk.Label(body, text="Password:", font=("Arial", 10), bg="white", fg="#333").pack(anchor=tk.W, pady=(15, 5))
         self.password_entry = tk.Entry(body, font=("Arial", 10), show="•", relief=tk.FLAT, highlightthickness=1, highlightcolor=PRIMARY_COLOR)
         self.password_entry.pack(fill=tk.X, ipady=8)
         self.password_entry.bind("<Return>", lambda e: self.login())
+
+        # Remember Me checkbox
+        remember_frame = tk.Frame(body, bg="white")
+        remember_frame.pack(anchor=tk.W, pady=(10, 5))
+        
+        self.remember_var = tk.BooleanVar()
+        remember_check = tk.Checkbutton(
+            remember_frame,
+            text="Remember Me",
+            variable=self.remember_var,
+            bg="white",
+            font=("Arial", 9),
+            activebackground="white"
+        )
+        remember_check.pack(side=tk.LEFT)
 
         # Buttons
         login_btn = tk.Button(
@@ -151,6 +208,45 @@ class LoginWindow:
         )
         status_label.pack(anchor=tk.W)
 
+    def load_saved_credentials(self):
+        """Load and auto-fill saved credentials if Remember Me was checked"""
+        try:
+            if self.credentials_file.exists():
+                with open(self.credentials_file, 'r') as f:
+                    data = json.load(f)
+                    username = data.get('username', '')
+                    password = data.get('password', '')
+                    
+                    if username and password:
+                        self.username_entry.insert(0, username)
+                        self.password_entry.insert(0, password)
+                        self.remember_var.set(True)
+                        self.logger.info(f"Auto-filled credentials for user: {username}")
+        except Exception as e:
+            self.logger.warning(f"Error loading saved credentials: {e}")
+
+    def save_credentials(self):
+        """Save credentials if Remember Me is checked"""
+        try:
+            os.makedirs('config', exist_ok=True)
+            with open(self.credentials_file, 'w') as f:
+                json.dump({
+                    'username': self.username_entry.get(),
+                    'password': self.password_entry.get()
+                }, f)
+            self.logger.info("Credentials saved for next login")
+        except Exception as e:
+            self.logger.error(f"Error saving credentials: {e}")
+
+    def clear_credentials(self):
+        """Clear saved credentials"""
+        try:
+            if self.credentials_file.exists():
+                self.credentials_file.unlink()
+                self.logger.info("Saved credentials cleared")
+        except Exception as e:
+            self.logger.warning(f"Error clearing credentials: {e}")
+
     def login(self):
         """Authenticate user"""
         username = self.username_entry.get().strip()
@@ -164,6 +260,12 @@ class LoginWindow:
             user = self.db.get_user_by_username(username)
 
             if user and verify_password(password, user['password_hash']):
+                # Save credentials if Remember Me checked
+                if self.remember_var.get():
+                    self.save_credentials()
+                else:
+                    self.clear_credentials()
+                
                 self.db.update_user_last_login(user['id'])
                 self.logger.info(f"User '{username}' logged in from local DB")
                 self.on_success(user['id'], user['username'], user['role'])
@@ -173,6 +275,12 @@ class LoginWindow:
             if self.network_checker.is_connected():
                 firebase_user = self.firebase.authenticate_user(username, password)
                 if firebase_user:
+                    # Save credentials if Remember Me checked
+                    if self.remember_var.get():
+                        self.save_credentials()
+                    else:
+                        self.clear_credentials()
+                    
                     self.db.create_or_update_user(
                         firebase_user['uid'],
                         username,
