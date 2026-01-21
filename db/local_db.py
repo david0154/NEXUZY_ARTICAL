@@ -48,7 +48,7 @@ class LocalDatabase:
                 )
             """)
 
-            # Create articles table
+            # Create articles table with image_path column
             self.cursor.execute(f"""
                 CREATE TABLE IF NOT EXISTS {ARTICLES_TABLE} (
                     id TEXT PRIMARY KEY,
@@ -60,15 +60,33 @@ class LocalDatabase:
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     sync_status INTEGER DEFAULT 0,
+                    image_path TEXT,
                     FOREIGN KEY(created_by) REFERENCES {USERS_TABLE}(id)
                 )
             """)
+
+            # Migrate existing table if image_path column doesn't exist
+            self._migrate_articles_table()
 
             self.connection.commit()
             logger.info(f"Database initialized: {self.db_path}")
         except Exception as e:
             logger.error(f"Database initialization failed: {e}")
             raise
+
+    def _migrate_articles_table(self):
+        """Add image_path column if it doesn't exist (backward compatibility)"""
+        try:
+            self.cursor.execute(f"PRAGMA table_info({ARTICLES_TABLE})")
+            columns = [col[1] for col in self.cursor.fetchall()]
+            
+            if 'image_path' not in columns:
+                logger.info(f"Migrating {ARTICLES_TABLE}: adding image_path column")
+                self.cursor.execute(f"ALTER TABLE {ARTICLES_TABLE} ADD COLUMN image_path TEXT")
+                self.connection.commit()
+                logger.info(f"Migration complete: image_path column added")
+        except Exception as e:
+            logger.warning(f"Migration check failed (may not be needed): {e}")
 
     def close(self):
         """Close database connection"""
@@ -185,9 +203,9 @@ class LocalDatabase:
         try:
             self.cursor.execute(f"""
                 INSERT INTO {ARTICLES_TABLE} (
-                    id, article_name, mould, size, gender, created_by, created_at, updated_at, sync_status
+                    id, article_name, mould, size, gender, created_by, created_at, updated_at, sync_status, image_path
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 article.id,
                 article.article_name,
@@ -197,7 +215,8 @@ class LocalDatabase:
                 article.created_by,
                 article.created_at or datetime.now(),
                 article.updated_at or datetime.now(),
-                SYNC_PENDING
+                SYNC_PENDING,
+                article.image_path
             ))
             self.connection.commit()
             return True
@@ -205,15 +224,15 @@ class LocalDatabase:
             logger.error(f"Add article failed: {e}")
             return False
 
-    def update_article(self, article_id: str, article_name: str, mould: str, size: str, gender: str) -> bool:
+    def update_article(self, article_id: str, article_name: str, mould: str, size: str, gender: str, image_path: Optional[str] = None) -> bool:
         """Update an existing article and mark it pending sync."""
         try:
             self.cursor.execute(
                 f"""UPDATE {ARTICLES_TABLE}
-                    SET article_name = ?, mould = ?, size = ?, gender = ?, updated_at = ?, sync_status = ?
+                    SET article_name = ?, mould = ?, size = ?, gender = ?, updated_at = ?, sync_status = ?, image_path = ?
                     WHERE id = ?
                 """,
-                (article_name, mould, size, gender, datetime.now(), SYNC_PENDING, article_id)
+                (article_name, mould, size, gender, datetime.now(), SYNC_PENDING, image_path, article_id)
             )
             self.connection.commit()
             return self.cursor.rowcount > 0
@@ -247,7 +266,8 @@ class LocalDatabase:
                 created_by=row['created_by'],
                 created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else datetime.now(),
                 updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None,
-                sync_status=row['sync_status']
+                sync_status=row['sync_status'],
+                image_path=row['image_path'] if 'image_path' in dict(row).keys() else None
             )
         except Exception as e:
             logger.error(f"Get article by id failed: {e}")
@@ -268,7 +288,8 @@ class LocalDatabase:
                     created_by=row['created_by'],
                     created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else datetime.now(),
                     updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None,
-                    sync_status=row['sync_status']
+                    sync_status=row['sync_status'],
+                    image_path=row['image_path'] if 'image_path' in dict(row).keys() else None
                 ))
             return articles
         except Exception as e:
@@ -293,7 +314,8 @@ class LocalDatabase:
                     created_by=row['created_by'],
                     created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else datetime.now(),
                     updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None,
-                    sync_status=row['sync_status']
+                    sync_status=row['sync_status'],
+                    image_path=row['image_path'] if 'image_path' in dict(row).keys() else None
                 ))
             return articles
         except Exception as e:
@@ -345,15 +367,15 @@ class LocalDatabase:
             logger.error(f"get_articles_by_user failed: {e}")
             return []
 
-    def create_article(self, article_id: str, article_name: str, mould: str, size: str, gender: str, created_by: str) -> bool:
-        """Used by UserDashboard create dialog."""
+    def create_article(self, article_id: str, article_name: str, mould: str, size: str, gender: str, created_by: str, image_path: Optional[str] = None) -> bool:
+        """Used by UserDashboard create dialog with optional image path."""
         try:
             self.cursor.execute(
                 f"""INSERT INTO {ARTICLES_TABLE}
-                    (id, article_name, mould, size, gender, created_by, created_at, updated_at, sync_status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, article_name, mould, size, gender, created_by, created_at, updated_at, sync_status, image_path)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (article_id, article_name, mould, size, gender, created_by, datetime.now(), datetime.now(), SYNC_PENDING)
+                (article_id, article_name, mould, size, gender, created_by, datetime.now(), datetime.now(), SYNC_PENDING, image_path)
             )
             self.connection.commit()
             return True
