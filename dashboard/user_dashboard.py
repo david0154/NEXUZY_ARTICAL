@@ -5,7 +5,7 @@ All features:
 - Shows ALL articles (not just user's own)
 - MANDATORY FTP upload for images
 - Firebase stores ONLY FTP URLs (no local paths)
-- Image preview with validation
+- Image preview with caching
 - Article creation blocked if FTP upload fails
 """
 
@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import APP_NAME, PRIMARY_COLOR, APP_VERSION, COMPANY
 from utils.ftp_uploader import get_ftp_uploader
+from utils.image_sync import get_image_sync
 from db.models import Article
 import uuid
 
@@ -39,6 +40,7 @@ class UserDashboard:
         self.logout_callback = logout_callback
         self.logger = logger
         self.ftp = get_ftp_uploader()
+        self.image_sync = get_image_sync()
         self.selected_image_path = None
         self.preview_photo = None
 
@@ -329,85 +331,138 @@ class UserDashboard:
         
         self.show_image_preview(article.image_path, article.article_name)
 
-    def check_image_exists(self, image_path):
-        """Check if image exists (URL only - no local files)"""
-        try:
-            if image_path.startswith(('http://', 'https://')):
-                req = urllib.request.Request(image_path, method='HEAD')
-                with urllib.request.urlopen(req, timeout=5) as response:
-                    return response.status == 200
-            return False  # Local paths not supported
-        except:
-            return False
-
     def show_image_preview(self, image_path, title="Image Preview"):
-        """Show image preview - handles ONLY URLs (FTP uploaded images)"""
+        """Show image preview with caching support"""
         try:
-            if not self.check_image_exists(image_path):
-                messagebox.showerror(
-                    "Image Not Found",
-                    f"Image for: {title}\n\n"
-                    f"The image is not accessible:\n{image_path}\n\n"
-                    f"Possible reasons:\n"
-                    f"• Image was deleted from FTP server\n"
-                    f"• Network connection issue\n"
-                    f"• Invalid image URL"
-                )
-                return
-            
-            # Download and display image from URL
-            with urllib.request.urlopen(image_path, timeout=10) as url:
-                image_data = url.read()
-            image = Image.open(io.BytesIO(image_data))
-            
-            # Resize if too large
-            max_size = (600, 600)
-            image.thumbnail(max_size, Image.Resampling.LANCZOS)
-            
-            # Create preview window
+            # Create preview window first
             preview = tk.Toplevel(self.root)
             preview.title(title)
+            preview.geometry("700x600")
             preview.resizable(False, False)
             preview.transient(self.root)
             preview.grab_set()
-            
-            photo = ImageTk.PhotoImage(image)
-            
-            label = tk.Label(preview, image=photo)
-            label.image = photo
-            label.pack(padx=10, pady=10)
-            
+
+            # Header
+            header_frame = tk.Frame(preview, bg=PRIMARY_COLOR)
+            header_frame.pack(fill=tk.X)
             tk.Label(
-                preview,
+                header_frame,
                 text=f"📷 {title}",
-                font=("Arial", 10, "bold")
-            ).pack(pady=5)
-            
-            tk.Label(
+                font=("Arial", 12, "bold"),
+                bg=PRIMARY_COLOR,
+                fg="white"
+            ).pack(pady=10)
+
+            # Loading label
+            loading_label = tk.Label(
                 preview,
-                text=f"Source: FTP Server",
-                font=("Arial", 8),
-                fg="#666"
-            ).pack(pady=(0, 5))
-            
-            tk.Button(
-                preview,
-                text="Close",
-                command=preview.destroy,
-                bg="#666",
-                fg="white",
-                relief=tk.FLAT,
-                cursor="hand2"
-            ).pack(pady=10, ipady=5, ipadx=20)
-            
-        except Exception as e:
-            self.logger.error(f"Error loading image: {e}")
-            messagebox.showerror(
-                "Error Loading Image",
-                f"Image for: {title}\n\n"
-                f"Could not load or display the image.\n\n"
-                f"Error: {str(e)}"
+                text="Loading image...",
+                font=("Arial", 11),
+                fg="gray"
             )
+            loading_label.pack(pady=20)
+
+            # Image container
+            image_frame = tk.Frame(preview, bg="white")
+            image_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+
+            def load_and_display():
+                try:
+                    img = None
+                    source_label = "Loading..."
+
+                    # Try cached image first
+                    cached_path = self.image_sync.get_cached_path(image_path)
+                    if cached_path and os.path.exists(cached_path):
+                        self.logger.info(f"Loading from cache: {cached_path}")
+                        img = Image.open(cached_path)
+                        source_label = "Source: Local Cache"
+                    else:
+                        # Download and cache
+                        if image_path.startswith(('http://', 'https://')):
+                            loading_label.config(text="Downloading from FTP server...")
+                            preview.update()
+                            
+                            cached_path = self.image_sync.download_image(image_path)
+                            if cached_path and os.path.exists(cached_path):
+                                img = Image.open(cached_path)
+                                source_label = "Source: FTP Server (now cached)"
+                            else:
+                                # Fallback: direct download
+                                with urllib.request.urlopen(image_path, timeout=10) as response:
+                                    img_data = response.read()
+                                    img = Image.open(io.BytesIO(img_data))
+                                source_label = "Source: FTP Server (direct)"
+                        else:
+                            raise ValueError("Invalid image path (must be FTP URL)")
+
+                    loading_label.destroy()
+
+                    # Resize image
+                    max_width = 650
+                    max_height = 450
+                    img.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
+
+                    # Display
+                    photo = ImageTk.PhotoImage(img)
+                    img_label = tk.Label(image_frame, image=photo, bg="white")
+                    img_label.image = photo
+                    img_label.pack(pady=10)
+
+                    # Info
+                    info_frame = tk.Frame(preview, bg="white")
+                    info_frame.pack(fill=tk.X, padx=20, pady=10)
+
+                    tk.Label(
+                        info_frame,
+                        text=source_label,
+                        font=("Arial", 9),
+                        fg="gray"
+                    ).pack()
+
+                    tk.Label(
+                        info_frame,
+                        text=f"Size: {img.width}x{img.height} pixels",
+                        font=("Arial", 9),
+                        fg="gray"
+                    ).pack()
+
+                    if image_path.startswith(('http://', 'https://')):
+                        url_label = tk.Label(
+                            info_frame,
+                            text=image_path,
+                            font=("Arial", 8, "underline"),
+                            fg="blue",
+                            cursor="hand2"
+                        )
+                        url_label.pack()
+
+                        def open_url(e):
+                            import webbrowser
+                            webbrowser.open(image_path)
+
+                        url_label.bind("<Button-1>", open_url)
+
+                    # Close button
+                    tk.Button(
+                        preview,
+                        text="Close",
+                        font=("Arial", 10),
+                        bg="#666",
+                        fg="white",
+                        command=preview.destroy
+                    ).pack(pady=10, ipady=5, ipadx=20)
+
+                except Exception as e:
+                    loading_label.config(text=f"Error: {str(e)}", fg="red")
+                    self.logger.error(f"Error loading image: {e}")
+
+            # Load in background
+            preview.after(100, load_and_display)
+
+        except Exception as e:
+            self.logger.error(f"Error showing preview: {e}")
+            messagebox.showerror("Error", f"Cannot show preview: {e}")
 
     def create_article(self):
         dialog = tk.Toplevel(self.root)
