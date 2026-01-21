@@ -86,13 +86,16 @@ class NexuzyApp:
 
             import uuid
             user_id = str(uuid.uuid4())
-            self.db.create_or_update_user(user_id, default_username, hash_password(default_password), default_role)
+            
+            # FIXED: Hash password once for local DB
+            password_hash = hash_password(default_password)
+            self.db.create_or_update_user(user_id, default_username, password_hash, default_role)
             self.logger.info("Default admin created: david / 784577")
 
-            # Sync to Firebase if connected
+            # FIXED: Sync to Firebase with PLAIN password (Firebase will hash it)
             try:
                 if self.network_checker.is_connected() and self.firebase.is_connected():
-                    self.firebase.create_user(user_id, default_username, hash_password(default_password), default_role)
+                    self.firebase.create_user(user_id, default_username, default_password, default_role)
             except Exception as e:
                 self.logger.warning(f"Default admin Firebase sync skipped: {e}")
 
