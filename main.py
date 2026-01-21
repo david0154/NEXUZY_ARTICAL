@@ -200,34 +200,60 @@ class NexuzyApp:
         }
         self.logger.info(f"User '{username}' ({role}) logged in successfully")
 
-        # Load appropriate dashboard
-        if role == 'admin':
-            from dashboard.admin_dashboard import AdminDashboard
-            dashboard_class = AdminDashboard
-        else:
-            from dashboard.user_dashboard import UserDashboard
-            dashboard_class = UserDashboard
-
+        # FIXED: Load dashboard AFTER clearing login window
         try:
+            # Clear any existing widgets
+            for widget in self.root.winfo_children():
+                widget.destroy()
+
+            # Show main window
             self.root.deiconify()
-            dashboard_class(
-                self.root,
-                self.current_user,
-                self.db,
-                self.firebase,
-                self.network_checker,
-                self.on_logout,
-                self.logger
-            )
+
+            # Load appropriate dashboard
+            if role == 'admin':
+                from dashboard.admin_dashboard import AdminDashboard
+                self.logger.info(f"Loading admin dashboard for {username}")
+                AdminDashboard(
+                    self.root,
+                    self.current_user,
+                    self.db,
+                    self.firebase,
+                    self.network_checker,
+                    self.on_logout,
+                    self.logger
+                )
+            else:
+                from dashboard.user_dashboard import UserDashboard
+                self.logger.info(f"Loading user dashboard for {username}")
+                UserDashboard(
+                    self.root,
+                    self.current_user,
+                    self.db,
+                    self.firebase,
+                    self.network_checker,
+                    self.on_logout,
+                    self.logger
+                )
+
+            self.logger.info(f"Dashboard loaded successfully for {username}")
+
         except Exception as e:
             self.logger.error(f"Dashboard initialization failed: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             messagebox.showerror("Error", f"Failed to load dashboard: {e}")
+            self.show_login()
 
     def on_logout(self):
         """Handle logout"""
         if self.current_user:
             self.logger.info(f"User '{self.current_user['username']}' logged out")
         self.current_user = None
+        
+        # Clear all widgets
+        for widget in self.root.winfo_children():
+            widget.destroy()
+        
         self.show_login()
 
     def on_closing(self):
