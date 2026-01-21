@@ -1,6 +1,9 @@
 # FTP Configuration (contains sensitive credentials)
 ftp_config.json
 
+# Image Cache (downloaded images)
+image_cache/
+
 # Python
 __pycache__/
 *.py[cod]
