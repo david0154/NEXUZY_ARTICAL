@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""User Dashboard - WITH FIXED IMAGE PREVIEW
+"""User Dashboard - WITH ROBUST IMAGE PREVIEW
 
 All features:
 - Shows ALL articles (not just user's own)
-- Image preview for BOTH local files and URLs
+- Image preview with validation
+- Handles missing/inaccessible images gracefully
 - FTP image upload
 - Firebase sync
 """
@@ -17,6 +18,7 @@ import random
 import string
 from PIL import Image, ImageTk
 import urllib.request
+import urllib.error
 import io
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -268,7 +270,7 @@ class UserDashboard:
 
                 tk.Label(
                     self.content_frame,
-                    text="💡 Tip: Double-click an article to view image",
+                    text="💡 Tip: Double-click an article to view image (if available)",
                     font=("Arial", 9, "italic"),
                     bg="white",
                     fg="#666"
@@ -320,28 +322,59 @@ class UserDashboard:
                     article = a
                     break
         
-        if not article or not article.image_path:
-            messagebox.showinfo("No Image", "This article has no image")
+        if not article:
+            messagebox.showwarning("Error", "Article not found")
+            return
+            
+        if not article.image_path:
+            messagebox.showinfo(
+                "No Image", 
+                f"Article: {article.article_name}\n\nNo image attached to this article.\n\nYou can add an image by editing the article."
+            )
             return
         
         self.show_image_preview(article.image_path, article.article_name)
 
-    def show_image_preview(self, image_path, title="Image Preview"):
-        """Show image preview - handles BOTH local files and URLs"""
+    def check_image_exists(self, image_path):
+        """Check if image exists (URL or local file)"""
         try:
-            # Check if it's a URL or local file
+            if image_path.startswith(('http://', 'https://')):
+                # Check if URL is accessible
+                req = urllib.request.Request(image_path, method='HEAD')
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    return response.status == 200
+            else:
+                # Check if local file exists
+                return os.path.exists(image_path) and os.path.isfile(image_path)
+        except:
+            return False
+
+    def show_image_preview(self, image_path, title="Image Preview"):
+        """Show image preview - handles BOTH local files and URLs with validation"""
+        try:
+            # First check if image exists
+            if not self.check_image_exists(image_path):
+                messagebox.showerror(
+                    "Image Not Found",
+                    f"Image for: {title}\n\n"
+                    f"The image file is not accessible:\n{image_path}\n\n"
+                    f"Possible reasons:\n"
+                    f"• Image was deleted from FTP server\n"
+                    f"• Local file was moved/deleted\n"
+                    f"• Network connection issue\n"
+                    f"• Invalid image URL"
+                )
+                return
+            
+            # Load image
             if image_path.startswith(('http://', 'https://')):
                 # It's a URL - download it
-                with urllib.request.urlopen(image_path) as url:
+                with urllib.request.urlopen(image_path, timeout=10) as url:
                     image_data = url.read()
                 image = Image.open(io.BytesIO(image_data))
             else:
                 # It's a local file path
-                if os.path.exists(image_path):
-                    image = Image.open(image_path)
-                else:
-                    messagebox.showerror("Error", f"Image file not found:\n{image_path}")
-                    return
+                image = Image.open(image_path)
             
             # Resize if too large
             max_size = (600, 600)
@@ -352,6 +385,7 @@ class UserDashboard:
             preview.title(title)
             preview.resizable(False, False)
             preview.transient(self.root)
+            preview.grab_set()
             
             # Convert to PhotoImage
             photo = ImageTk.PhotoImage(image)
@@ -362,9 +396,18 @@ class UserDashboard:
             
             tk.Label(
                 preview,
-                text=f"📷 {title}",
+                text=f"📸 {title}",
                 font=("Arial", 10, "bold")
             ).pack(pady=5)
+            
+            # Show image source info
+            source_type = "URL" if image_path.startswith(('http://', 'https://')) else "Local File"
+            tk.Label(
+                preview,
+                text=f"Source: {source_type}",
+                font=("Arial", 8),
+                fg="#666"
+            ).pack(pady=(0, 5))
             
             tk.Button(
                 preview,
@@ -376,9 +419,30 @@ class UserDashboard:
                 cursor="hand2"
             ).pack(pady=10, ipady=5, ipadx=20)
             
+        except urllib.error.HTTPError as e:
+            self.logger.error(f"HTTP error loading image: {e}")
+            messagebox.showerror(
+                "Image Not Found",
+                f"Image for: {title}\n\n"
+                f"HTTP Error {e.code}: The image could not be loaded from the server.\n\n"
+                f"The image may have been deleted from the FTP server."
+            )
+        except urllib.error.URLError as e:
+            self.logger.error(f"URL error loading image: {e}")
+            messagebox.showerror(
+                "Network Error",
+                f"Image for: {title}\n\n"
+                f"Could not connect to image server.\n\n"
+                f"Please check your internet connection."
+            )
         except Exception as e:
             self.logger.error(f"Error loading image: {e}")
-            messagebox.showerror("Error", f"Could not load image:\n{str(e)}")
+            messagebox.showerror(
+                "Error Loading Image",
+                f"Image for: {title}\n\n"
+                f"Could not load or display the image.\n\n"
+                f"Error: {str(e)}"
+            )
 
     def create_article(self):
         dialog = tk.Toplevel(self.root)
@@ -503,15 +567,15 @@ class UserDashboard:
 
                 image_url = None
                 if self.selected_image_path:
-                    status_label.config(text="⏳ Uploading image...", fg="blue")
+                    status_label.config(text="⏳ Uploading image to FTP...", fg="blue")
                     dialog.update()
                     image_url = self.ftp.upload_image(self.selected_image_path)
                     if image_url:
-                        status_label.config(text="✅ Image uploaded!", fg="green")
+                        status_label.config(text="✅ Image uploaded to FTP!", fg="green")
                     else:
-                        # If FTP upload fails, save local path instead
+                        # If FTP upload fails, save local path as fallback
                         image_url = self.selected_image_path
-                        status_label.config(text="⚠️ Using local path", fg="orange")
+                        status_label.config(text="⚠️ FTP failed, using local path", fg="orange")
                     dialog.update()
 
                 article = Article(
