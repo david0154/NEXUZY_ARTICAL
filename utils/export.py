@@ -39,6 +39,11 @@ class ExportManager:
     def __init__(self):
         self.logger = Logger(__name__)
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Primary color - stored with # for PDF compatibility
+        self.PRIMARY_HEX = "#1f77d4"
+        self.PRIMARY_HEX_EXCEL = "1f77d4"
+        self.SECONDARY_HEX = "#f0f0f0"
+        self.SECONDARY_HEX_EXCEL = "f0f0f0"
 
     def export_articles_to_excel(self, articles: List[Dict], output_path: str = None) -> str:
         """
@@ -62,7 +67,7 @@ class ExportManager:
             ws.title = "Articles"
 
             # Define styles
-            header_fill = PatternFill(start_color="1f77d4", end_color="1f77d4", fill_type="solid")
+            header_fill = PatternFill(start_color=self.PRIMARY_HEX_EXCEL, end_color=self.PRIMARY_HEX_EXCEL, fill_type="solid")
             header_font = Font(bold=True, color="FFFFFF", size=12)
             border = Border(
                 left=Side(style='thin'),
@@ -159,7 +164,7 @@ class ExportManager:
             ws.title = "Users"
 
             # Define styles
-            header_fill = PatternFill(start_color="1f77d4", end_color="1f77d4", fill_type="solid")
+            header_fill = PatternFill(start_color=self.PRIMARY_HEX_EXCEL, end_color=self.PRIMARY_HEX_EXCEL, fill_type="solid")
             header_font = Font(bold=True, color="FFFFFF", size=12)
             border = Border(
                 left=Side(style='thin'),
@@ -267,7 +272,7 @@ class ExportManager:
                 'CustomTitle',
                 parent=styles['Heading1'],
                 fontSize=20,
-                textColor=colors.HexColor('1f77d4'),
+                textColor=colors.HexColor(self.PRIMARY_HEX),
                 spaceAfter=30,
                 alignment=TA_CENTER,
                 fontName='Helvetica-Bold'
@@ -318,7 +323,7 @@ class ExportManager:
             # Style table
             table.setStyle(TableStyle([
                 # Header
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('1f77d4')),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(self.PRIMARY_HEX)),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
@@ -329,7 +334,7 @@ class ExportManager:
                 ('ALIGN', (0, 1), (-1, -1), 'LEFT'),
                 ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
                 ('FONTSIZE', (0, 1), (-1, -1), 9),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('f0f0f0')]),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor(self.SECONDARY_HEX)]),
                 ('GRID', (0, 0), (-1, -1), 1, colors.black),
                 ('TOPPADDING', (0, 1), (-1, -1), 8),
                 ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
@@ -399,7 +404,7 @@ class ExportManager:
                 'CustomTitle',
                 parent=styles['Heading1'],
                 fontSize=20,
-                textColor=colors.HexColor('1f77d4'),
+                textColor=colors.HexColor(self.PRIMARY_HEX),
                 spaceAfter=30,
                 alignment=TA_CENTER,
                 fontName='Helvetica-Bold'
@@ -433,7 +438,7 @@ class ExportManager:
             )
 
             table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('1f77d4')),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(self.PRIMARY_HEX)),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
@@ -442,7 +447,7 @@ class ExportManager:
                 ('ALIGN', (0, 1), (-1, -1), 'LEFT'),
                 ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
                 ('FONTSIZE', (0, 1), (-1, -1), 9),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('f0f0f0')]),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor(self.SECONDARY_HEX)]),
                 ('GRID', (0, 0), (-1, -1), 1, colors.black),
                 ('TOPPADDING', (0, 1), (-1, -1), 8),
                 ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
