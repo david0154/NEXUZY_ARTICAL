@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""User Dashboard - WITH IMAGE PREVIEW
+"""User Dashboard - WITH FIXED IMAGE PREVIEW
 
 All features:
 - Shows ALL articles (not just user's own)
-- Image preview support
+- Image preview for BOTH local files and URLs
 - FTP image upload
 - Firebase sync
 """
@@ -139,7 +139,7 @@ class UserDashboard:
         ).pack(anchor=tk.W, pady=(0, 20))
 
         try:
-            # FIXED: Show ALL articles
+            # Show ALL articles
             all_articles = self.db.get_all_articles()
             my_articles = [a for a in all_articles if a.created_by == self.user['id']]
             total_articles = len(all_articles)
@@ -215,7 +215,7 @@ class UserDashboard:
         ).pack(side=tk.RIGHT, ipady=6, ipadx=12)
 
         try:
-            # FIXED: Show ALL articles (not just user's own)
+            # Show ALL articles
             articles = self.db.get_all_articles()
 
             if articles:
@@ -326,15 +326,22 @@ class UserDashboard:
         
         self.show_image_preview(article.image_path, article.article_name)
 
-    def show_image_preview(self, image_url, title="Image Preview"):
-        """Show image preview in a popup"""
+    def show_image_preview(self, image_path, title="Image Preview"):
+        """Show image preview - handles BOTH local files and URLs"""
         try:
-            # Download image
-            with urllib.request.urlopen(image_url) as url:
-                image_data = url.read()
-            
-            # Open with PIL
-            image = Image.open(io.BytesIO(image_data))
+            # Check if it's a URL or local file
+            if image_path.startswith(('http://', 'https://')):
+                # It's a URL - download it
+                with urllib.request.urlopen(image_path) as url:
+                    image_data = url.read()
+                image = Image.open(io.BytesIO(image_data))
+            else:
+                # It's a local file path
+                if os.path.exists(image_path):
+                    image = Image.open(image_path)
+                else:
+                    messagebox.showerror("Error", f"Image file not found:\n{image_path}")
+                    return
             
             # Resize if too large
             max_size = (600, 600)
@@ -355,7 +362,7 @@ class UserDashboard:
             
             tk.Label(
                 preview,
-                text=f"📸 {title}",
+                text=f"📷 {title}",
                 font=("Arial", 10, "bold")
             ).pack(pady=5)
             
@@ -371,7 +378,7 @@ class UserDashboard:
             
         except Exception as e:
             self.logger.error(f"Error loading image: {e}")
-            messagebox.showerror("Error", f"Could not load image: {e}")
+            messagebox.showerror("Error", f"Could not load image:\n{str(e)}")
 
     def create_article(self):
         dialog = tk.Toplevel(self.root)
@@ -501,6 +508,10 @@ class UserDashboard:
                     image_url = self.ftp.upload_image(self.selected_image_path)
                     if image_url:
                         status_label.config(text="✅ Image uploaded!", fg="green")
+                    else:
+                        # If FTP upload fails, save local path instead
+                        image_url = self.selected_image_path
+                        status_label.config(text="⚠️ Using local path", fg="orange")
                     dialog.update()
 
                 article = Article(
