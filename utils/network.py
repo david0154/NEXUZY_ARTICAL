@@ -1,6 +1,10 @@
 """
 Network utilities for internet connectivity check
 Author: Manoj Konar (monoj@nexuzy.in)
+
+Exports:
+- NetworkChecker: class used by the app
+- is_online(): functional helper (kept for compatibility)
 """
 
 import socket
@@ -9,40 +13,36 @@ from config import INTERNET_CHECK_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
-def is_online(timeout=INTERNET_CHECK_TIMEOUT):
-    """
-    Check if internet connection is available
-    Uses Google's DNS (8.8.8.8) as reliable endpoint
-    
-    Args:
-        timeout: Connection timeout in seconds
-        
-    Returns:
-        bool: True if online, False if offline
-    """
+
+def is_online(timeout: int = INTERNET_CHECK_TIMEOUT) -> bool:
+    """Check if internet connection is available (Google DNS ping)."""
     try:
-        # Try to connect to Google DNS
         socket.create_connection(("8.8.8.8", 53), timeout=timeout)
-        logger.info("Internet connection available")
+        logger.debug("Internet connection available")
         return True
     except (OSError, socket.timeout):
-        logger.warning("No internet connection detected")
+        logger.debug("No internet connection detected")
         return False
 
-def check_firebase_connection(firebase_app):
-    """
-    Verify Firebase connectivity
-    
-    Args:
-        firebase_app: Firebase app instance
-        
-    Returns:
-        bool: True if Firebase is reachable
-    """
+
+class NetworkChecker:
+    """Backward-compatible checker used across the app."""
+
+    def __init__(self, timeout: int = INTERNET_CHECK_TIMEOUT):
+        self.timeout = timeout
+
+    def is_connected(self) -> bool:
+        return is_online(self.timeout)
+
+    def is_online(self) -> bool:
+        return is_online(self.timeout)
+
+
+def check_firebase_connection(firebase_app) -> bool:
+    """Verify Firebase connectivity (basic)."""
     try:
         if not is_online():
             return False
-        # Simple Firebase connectivity check
         return True
     except Exception as e:
         logger.error(f"Firebase connection check failed: {e}")
