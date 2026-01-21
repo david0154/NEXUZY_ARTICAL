@@ -8,6 +8,7 @@ Author: Manoj Konar (monoj@nexuzy.in)
 import ftplib
 import os
 import logging
+import json
 from pathlib import Path
 from typing import Optional
 import mimetypes
@@ -31,19 +32,47 @@ class FTPUploader:
             remote_dir: Remote directory path on FTP server
             base_url: Public base URL for accessing uploaded files
         """
-        self.host = host or os.getenv('FTP_HOST')
-        self.username = username or os.getenv('FTP_USER')
-        self.password = password or os.getenv('FTP_PASS')
-        self.remote_dir = remote_dir
-        self.base_url = base_url.rstrip('/')
+        # Try to load from ftp_config.json first
+        self._load_config()
+        
+        # Override with provided params or env vars
+        self.host = host or self.host or os.getenv('FTP_HOST')
+        self.username = username or self.username or os.getenv('FTP_USER')
+        self.password = password or self.password or os.getenv('FTP_PASS')
+        self.remote_dir = remote_dir if remote_dir != '/public_html/articles/images' else self.remote_dir
+        self.base_url = base_url.rstrip('/') if base_url != 'https://yourdomain.com/articles/images' else self.base_url.rstrip('/')
         self.connected = False
         self.ftp = None
+
+    def _load_config(self):
+        """Load FTP configuration from ftp_config.json"""
+        try:
+            config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'ftp_config.json')
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                    self.host = config.get('ftp_host')
+                    self.username = config.get('ftp_user')
+                    self.password = config.get('ftp_pass')
+                    self.remote_dir = config.get('ftp_remote_dir', '/public_html/articles/images')
+                    self.base_url = config.get('ftp_base_url', 'https://yourdomain.com/articles/images')
+                    logger.info("FTP config loaded from ftp_config.json")
+                    return
+        except Exception as e:
+            logger.debug(f"Could not load ftp_config.json: {e}")
+        
+        # Default values if config file doesn't exist
+        self.host = None
+        self.username = None
+        self.password = None
+        self.remote_dir = '/public_html/articles/images'
+        self.base_url = 'https://yourdomain.com/articles/images'
 
     def connect(self) -> bool:
         """Establish FTP connection"""
         try:
             if not all([self.host, self.username, self.password]):
-                logger.warning("FTP credentials not configured")
+                logger.warning("FTP credentials not configured. Please update ftp_config.json")
                 return False
 
             self.ftp = ftplib.FTP(self.host, timeout=30)
@@ -56,15 +85,17 @@ class FTPUploader:
             except:
                 # Try to create directory path
                 dirs = self.remote_dir.strip('/').split('/')
-                current = '/'
+                current = ''
                 for dir_name in dirs:
                     try:
-                        self.ftp.cwd(f"{current}/{dir_name}")
                         current = f"{current}/{dir_name}"
+                        self.ftp.cwd(current)
                     except:
-                        self.ftp.mkd(f"{current}/{dir_name}")
-                        self.ftp.cwd(f"{current}/{dir_name}")
-                        current = f"{current}/{dir_name}"
+                        try:
+                            self.ftp.mkd(current)
+                            self.ftp.cwd(current)
+                        except:
+                            pass
             
             self.connected = True
             logger.info(f"FTP connected to {self.host}")
@@ -107,6 +138,7 @@ class FTPUploader:
             # Connect if not already connected
             if not self.connected:
                 if not self.connect():
+                    logger.error("Cannot upload: FTP connection failed")
                     return None
 
             # Generate unique filename if not provided
@@ -120,7 +152,11 @@ class FTPUploader:
                 remote_filename = f"article_{timestamp}_{random_str}{file_ext}"
 
             # Ensure we're in the correct directory
-            self.ftp.cwd(self.remote_dir)
+            try:
+                self.ftp.cwd(self.remote_dir)
+            except:
+                logger.error(f"Cannot access remote directory: {self.remote_dir}")
+                return None
 
             # Upload file in binary mode
             with open(local_path, 'rb') as file:
@@ -128,12 +164,15 @@ class FTPUploader:
 
             # Construct public URL
             public_url = f"{self.base_url}/{remote_filename}"
-            logger.info(f"Image uploaded: {public_url}")
+            logger.info(f"Image uploaded successfully: {public_url}")
             return public_url
 
         except Exception as e:
             logger.error(f"FTP upload failed: {e}")
             return None
+        finally:
+            # Keep connection alive for multiple uploads
+            pass
 
     def delete_image(self, filename: str) -> bool:
         """Delete image from FTP server"""
