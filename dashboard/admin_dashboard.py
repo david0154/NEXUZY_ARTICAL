@@ -8,6 +8,7 @@ All features:
 - Firebase sync
 - Article/User management
 - User Edit/Delete/Password/Suspend
+- Image preview on double-click
 - All buttons working
 """
 
@@ -20,12 +21,17 @@ import random
 import string
 import subprocess
 import platform
+import io
+import urllib.request
+import urllib.error
+from PIL import Image, ImageTk
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import APP_NAME, PRIMARY_COLOR, APP_VERSION, DEVELOPER_NAME, DEVELOPER_EMAIL, COMPANY
 from utils.export import ExportManager
 from utils.ftp_uploader import get_ftp_uploader
+from utils.image_sync import get_image_sync
 from utils.security import hash_password
 from db.models import Article, User
 import uuid
@@ -42,6 +48,7 @@ class AdminDashboard:
         self.logger = logger
         self.exporter = ExportManager()
         self.ftp = get_ftp_uploader()
+        self.image_sync = get_image_sync()
         self.selected_image_path = None
 
         self.root.deiconify()
@@ -229,6 +236,164 @@ class AdminDashboard:
         short_id = values[0]
         return self._article_id_map.get(short_id)
 
+    def show_article_image_preview(self, event):
+        """Show image preview on double-click"""
+        article_id = self._get_selected_article_id()
+        if not article_id:
+            return
+
+        article = self.db.get_article_by_id(article_id)
+        if not article or not article.image_path:
+            messagebox.showinfo("Image Preview", "No image available for this article")
+            return
+
+        try:
+            # Create preview window
+            preview_window = tk.Toplevel(self.root)
+            preview_window.title(f"Image Preview - {article.article_name}")
+            preview_window.geometry("700x600")
+            preview_window.resizable(False, False)
+            preview_window.transient(self.root)
+            preview_window.grab_set()
+
+            # Header
+            header_frame = tk.Frame(preview_window, bg=PRIMARY_COLOR)
+            header_frame.pack(fill=tk.X)
+            tk.Label(
+                header_frame,
+                text=f"Preview: {article.article_name}",
+                font=("Arial", 12, "bold"),
+                bg=PRIMARY_COLOR,
+                fg="white"
+            ).pack(pady=10)
+
+            # Loading label
+            loading_label = tk.Label(
+                preview_window,
+                text="Loading image...",
+                font=("Arial", 11),
+                fg="gray"
+            )
+            loading_label.pack(pady=20)
+
+            # Image container
+            image_frame = tk.Frame(preview_window, bg="white")
+            image_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+
+            def load_and_display_image():
+                try:
+                    img = None
+                    source_label = "Loading..."
+
+                    # Try to get cached image first
+                    cached_path = self.image_sync.get_cached_path(article.image_path)
+                    if cached_path and os.path.exists(cached_path):
+                        img = Image.open(cached_path)
+                        source_label = "Source: Local Cache"
+                        self.logger.info(f"Loaded image from cache: {cached_path}")
+                    else:
+                        # Download and cache if not available
+                        if article.image_path.startswith(('http://', 'https://')):
+                            loading_label.config(text="Downloading image...")
+                            preview_window.update()
+                            
+                            cached_path = self.image_sync.download_image(article.image_path)
+                            if cached_path and os.path.exists(cached_path):
+                                img = Image.open(cached_path)
+                                source_label = "Source: FTP Server (cached)"
+                                self.logger.info(f"Downloaded and cached: {cached_path}")
+                            else:
+                                # Fallback: direct URL download
+                                with urllib.request.urlopen(article.image_path, timeout=10) as response:
+                                    img_data = response.read()
+                                    img = Image.open(io.BytesIO(img_data))
+                                source_label = "Source: FTP Server (direct)"
+                        elif os.path.exists(article.image_path):
+                            # Local file path
+                            img = Image.open(article.image_path)
+                            source_label = "Source: Local File"
+                        else:
+                            raise FileNotFoundError(f"Image not found: {article.image_path}")
+
+                    loading_label.destroy()
+
+                    # Resize image to fit window
+                    max_width = 650
+                    max_height = 450
+                    img.thumbnail((max_width, max_height), Image.Resampling.LANCZOS)
+
+                    # Convert to PhotoImage
+                    photo = ImageTk.PhotoImage(img)
+
+                    # Display image
+                    img_label = tk.Label(image_frame, image=photo, bg="white")
+                    img_label.image = photo  # Keep reference
+                    img_label.pack(pady=10)
+
+                    # Image info
+                    info_frame = tk.Frame(preview_window, bg="white")
+                    info_frame.pack(fill=tk.X, padx=20, pady=10)
+
+                    tk.Label(
+                        info_frame,
+                        text=source_label,
+                        font=("Arial", 9),
+                        fg="gray"
+                    ).pack()
+
+                    tk.Label(
+                        info_frame,
+                        text=f"Size: {img.width}x{img.height} pixels",
+                        font=("Arial", 9),
+                        fg="gray"
+                    ).pack()
+
+                    if article.image_path.startswith(('http://', 'https://')):
+                        url_label = tk.Label(
+                            info_frame,
+                            text=article.image_path,
+                            font=("Arial", 8, "underline"),
+                            fg="blue",
+                            cursor="hand2"
+                        )
+                        url_label.pack()
+
+                        def open_url(e):
+                            import webbrowser
+                            webbrowser.open(article.image_path)
+
+                        url_label.bind("<Button-1>", open_url)
+
+                    # Close button
+                    tk.Button(
+                        preview_window,
+                        text="Close",
+                        font=("Arial", 10),
+                        bg="#666",
+                        fg="white",
+                        command=preview_window.destroy
+                    ).pack(pady=10, ipady=5, ipadx=20)
+
+                except urllib.error.HTTPError as e:
+                    loading_label.config(text=f"HTTP Error {e.code}: Cannot load image", fg="red")
+                    self.logger.error(f"HTTP error loading image: {e}")
+                except urllib.error.URLError as e:
+                    loading_label.config(text=f"Network Error: {e.reason}", fg="red")
+                    self.logger.error(f"URL error loading image: {e}")
+                except FileNotFoundError as e:
+                    loading_label.config(text=str(e), fg="red")
+                    self.logger.error(f"Image file not found: {e}")
+                except Exception as e:
+                    loading_label.config(text=f"Error: {str(e)}", fg="red")
+                    self.logger.error(f"Error loading image: {e}")
+
+            # Load image in background
+            preview_window.after(100, load_and_display_image)
+
+        except Exception as e:
+            self.logger.error(f"Error showing image preview: {e}")
+            messagebox.showerror("Error", f"Cannot show image preview: {e}")
+
     def show_articles(self):
         self.clear_content()
 
@@ -241,6 +406,15 @@ class AdminDashboard:
             font=("Arial", 16, "bold"),
             bg="white"
         ).pack(side=tk.LEFT)
+
+        # Hint label
+        tk.Label(
+            header_frame,
+            text="💡 Double-click to preview image",
+            font=("Arial", 9),
+            bg="white",
+            fg="gray"
+        ).pack(side=tk.LEFT, padx=20)
 
         actions = tk.Frame(header_frame, bg="white")
         actions.pack(side=tk.RIGHT)
@@ -338,6 +512,9 @@ class AdminDashboard:
                         article.created_at.strftime("%Y-%m-%d"),
                         sync_status
                     ))
+
+                # Bind double-click event for image preview
+                self.articles_tree.bind("<Double-1>", self.show_article_image_preview)
 
                 scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.articles_tree.yview)
                 self.articles_tree.configure(yscroll=scrollbar.set)
