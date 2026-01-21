@@ -1,4 +1,4 @@
-"""Local SQLite Database Operations
+"""Local SQLite Database Operations with Firebase Sync
 Author: Manoj Konar (monoj@nexuzy.in)
 """
 
@@ -15,15 +15,20 @@ logger = logging.getLogger(__name__)
 
 
 class LocalDatabase:
-    """SQLite database manager"""
+    """SQLite database manager with Firebase integration"""
 
-    def __init__(self, db_path: Path = LOCAL_DB_PATH):
+    def __init__(self, db_path: Path = LOCAL_DB_PATH, firebase_sync=None):
         self.db_path = db_path
         self.connection = None
         self.cursor = None
+        self.firebase_sync = firebase_sync  # Firebase sync handler
         self.init_database()
 
-    # Backward-compatible alias (main.py expects initialize())
+    def set_firebase_sync(self, firebase_sync):
+        """Set Firebase sync handler after initialization"""
+        self.firebase_sync = firebase_sync
+        logger.info("Firebase sync handler attached to LocalDatabase")
+
     def initialize(self):
         """Backward compatible initializer."""
         return self.init_database()
@@ -65,9 +70,7 @@ class LocalDatabase:
                 )
             """)
 
-            # Migrate existing table if image_path column doesn't exist
             self._migrate_articles_table()
-
             self.connection.commit()
             logger.info(f"Database initialized: {self.db_path}")
         except Exception as e:
@@ -123,7 +126,6 @@ class LocalDatabase:
             logger.error(f"Add user failed: {e}")
             return False
 
-    # Backward-compatible method used by login/register flows
     def create_or_update_user(self, user_id: str, username: str, password_hash: str, role: str) -> bool:
         """Create or update user by username/id."""
         try:
@@ -180,7 +182,6 @@ class LocalDatabase:
             logger.error(f"Get all users failed: {e}")
             return []
 
-    # Backward-compatible name used by login.py
     def update_user_last_login(self, user_id: str) -> bool:
         return self.update_last_login(user_id)
 
@@ -192,6 +193,23 @@ class LocalDatabase:
             return True
         except Exception as e:
             logger.error(f"Update last login failed: {e}")
+            return False
+
+    def delete_user(self, user_id: str) -> bool:
+        """Delete user locally AND from Firebase"""
+        try:
+            # Delete from local DB
+            self.cursor.execute(f"DELETE FROM {USERS_TABLE} WHERE id = ?", (user_id,))
+            self.connection.commit()
+            
+            # Sync delete to Firebase
+            if self.firebase_sync and self.firebase_sync.is_connected():
+                self.firebase_sync.delete_user(user_id)
+            
+            logger.info(f"User deleted: {user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Delete user failed: {e}")
             return False
 
     # -----------------
@@ -235,16 +253,36 @@ class LocalDatabase:
                 (article_name, mould, size, gender, datetime.now(), SYNC_PENDING, image_path, article_id)
             )
             self.connection.commit()
+            
+            # Sync update to Firebase
+            if self.firebase_sync and self.firebase_sync.is_connected():
+                updates = {
+                    'article_name': article_name,
+                    'mould': mould,
+                    'size': size,
+                    'gender': gender,
+                    'image_path': image_path
+                }
+                self.firebase_sync.update_article(article_id, updates)
+            
             return self.cursor.rowcount > 0
         except Exception as e:
             logger.error(f"Update article failed: {e}")
             return False
 
     def delete_article(self, article_id: str) -> bool:
-        """Delete article locally."""
+        """Delete article locally AND from Firebase"""
         try:
+            # Delete from local DB
             self.cursor.execute(f"DELETE FROM {ARTICLES_TABLE} WHERE id = ?", (article_id,))
             self.connection.commit()
+            
+            # CRITICAL: Sync delete to Firebase
+            if self.firebase_sync and self.firebase_sync.is_connected():
+                self.firebase_sync.delete_article(article_id)
+                logger.info(f"Article {article_id} deleted from Firebase")
+            
+            logger.info(f"Article deleted: {article_id}")
             return self.cursor.rowcount > 0
         except Exception as e:
             logger.error(f"Delete article failed: {e}")
@@ -352,7 +390,7 @@ class LocalDatabase:
             return 0
 
     # -----------------
-    # Methods required by UserDashboard (dict based)
+    # UserDashboard compatibility
     # -----------------
 
     def get_articles_by_user(self, user_id: str) -> List[dict]:
