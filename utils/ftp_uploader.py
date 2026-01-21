@@ -5,8 +5,8 @@ Handles uploading article images to FTP server and returns FTP paths (not URLs).
 Author: Manoj Konar (monoj@nexuzy.in)
 
 Build-safe config loading:
-- In a PyInstaller build, users will keep ftp_config.json in the writable app-data folder
-  (Option B via config.BASE_DIR).
+- Prefer Option B runtime folder (AppData via config.BASE_DIR).
+- Fallback to local repo folder if running from source with older config.py.
 """
 
 import ftplib
@@ -16,9 +16,33 @@ import json
 from pathlib import Path
 from typing import Optional
 
-from config import FTP_CONFIG_PATH
-
 logger = logging.getLogger(__name__)
+
+
+def _resolve_ftp_config_path() -> Path:
+    """Resolve ftp_config.json path safely.
+
+    Order:
+    1) config.FTP_CONFIG_PATH (new config.py)
+    2) config.BASE_DIR/ftp_config.json (if BASE_DIR exists)
+    3) project root (two levels up from this file)
+    """
+    try:
+        import config as cfg  # noqa
+
+        if hasattr(cfg, "FTP_CONFIG_PATH"):
+            return Path(getattr(cfg, "FTP_CONFIG_PATH"))
+
+        if hasattr(cfg, "BASE_DIR"):
+            return Path(getattr(cfg, "BASE_DIR")) / "ftp_config.json"
+
+    except Exception:
+        pass
+
+    return Path(__file__).resolve().parent.parent / "ftp_config.json"
+
+
+FTP_CONFIG_PATH = _resolve_ftp_config_path()
 
 
 class FTPUploader:
@@ -85,7 +109,6 @@ class FTPUploader:
 
             logger.info(f"Connecting to FTP: {self.username}@{self.host}:{self.port}")
 
-            # Connect with port support
             if self.port and self.port != 21:
                 self.ftp = ftplib.FTP(timeout=30)
                 self.ftp.connect(self.host, self.port)
@@ -94,12 +117,11 @@ class FTPUploader:
                 self.ftp = ftplib.FTP(self.host, timeout=30)
                 self.ftp.login(self.username, self.password)
 
-            self.ftp.set_pasv(True)  # Use passive mode
+            self.ftp.set_pasv(True)
 
             current_dir = self.ftp.pwd()
             logger.info(f"FTP login successful! Current directory: {current_dir}")
 
-            # Navigate to remote directory
             try:
                 logger.info(f"Attempting to change to: {self.remote_dir}")
                 self.ftp.cwd(self.remote_dir)
@@ -107,8 +129,6 @@ class FTPUploader:
                 logger.info(f"Current directory: {self.ftp.pwd()}")
             except ftplib.error_perm as e:
                 logger.error(f"Directory {self.remote_dir} not accessible: {e}")
-
-                # Try to create the directory
                 try:
                     logger.info(f"Attempting to create directory: {self.remote_dir}")
                     self.ftp.mkd(self.remote_dir)
@@ -139,7 +159,6 @@ class FTPUploader:
             return False
 
     def disconnect(self):
-        """Close FTP connection"""
         if self.ftp:
             try:
                 self.ftp.quit()
@@ -152,19 +171,16 @@ class FTPUploader:
             logger.info("FTP disconnected")
 
     def upload_image(self, local_path: str, remote_filename: Optional[str] = None) -> Optional[str]:
-        """Upload image file to FTP server and return FTP path."""
         try:
             if not os.path.exists(local_path):
                 logger.error(f"Local file not found: {local_path}")
                 return None
 
-            # Connect if not already connected
             if not self.connected:
                 if not self.connect():
                     logger.error("Cannot upload: FTP connection failed")
                     return None
 
-            # Generate unique filename if not provided
             if not remote_filename:
                 file_ext = Path(local_path).suffix.lower()
                 from datetime import datetime
@@ -174,7 +190,6 @@ class FTPUploader:
                 random_str = "".join(random.choices(string.ascii_lowercase + string.digits, k=6))
                 remote_filename = f"article_{timestamp}_{random_str}{file_ext}"
 
-            # Ensure we're in the correct directory
             try:
                 self.ftp.cwd(self.remote_dir)
             except Exception:
@@ -197,7 +212,6 @@ class FTPUploader:
             return None
 
     def download_image(self, ftp_path: str, local_path: str) -> bool:
-        """Download image from FTP server with authentication"""
         try:
             if not self.connected:
                 if not self.connect():
@@ -229,12 +243,10 @@ class FTPUploader:
             return False
 
 
-# Singleton instance
 _ftp_uploader_instance = None
 
 
 def get_ftp_uploader() -> FTPUploader:
-    """Get singleton FTP uploader instance"""
     global _ftp_uploader_instance
     if _ftp_uploader_instance is None:
         _ftp_uploader_instance = FTPUploader()
