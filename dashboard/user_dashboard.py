@@ -2,7 +2,7 @@
 """User Dashboard - WITH IMAGE PREVIEW
 
 All features:
-- Shows only user's own articles (not admin articles)
+- Shows ALL articles (not just user's own)
 - Image preview support
 - FTP image upload
 - Firebase sync
@@ -92,7 +92,7 @@ class UserDashboard:
 
         buttons = [
             ("📊 Dashboard", self.show_dashboard),
-            ("📄 My Articles", self.show_articles),
+            ("📄 All Articles", self.show_articles),
             ("🔄 Sync Status", self.show_sync_status),
             ("ℹ️ About", self.show_about),
             ("⚙️ Settings", self.show_settings),
@@ -139,21 +139,24 @@ class UserDashboard:
         ).pack(anchor=tk.W, pady=(0, 20))
 
         try:
-            # FIXED: Only show user's own articles
-            my_articles = self.db.get_articles_by_user(self.user['id'])
-            total_articles = len(my_articles)
+            # FIXED: Show ALL articles
+            all_articles = self.db.get_all_articles()
+            my_articles = [a for a in all_articles if a.created_by == self.user['id']]
+            total_articles = len(all_articles)
+            my_article_count = len(my_articles)
             pending_sync = len([a for a in my_articles if a.sync_status == 0])
             is_online = self.network_checker.is_connected()
         except Exception as e:
             self.logger.error(f"Error fetching stats: {e}")
-            total_articles = pending_sync = 0
+            total_articles = my_article_count = pending_sync = 0
             is_online = False
 
         stats_frame = tk.Frame(self.content_frame, bg="white")
         stats_frame.pack(fill=tk.X, pady=10)
 
         stats = [
-            ("My Articles", str(total_articles), "📄"),
+            ("Total Articles", str(total_articles), "📊"),
+            ("My Articles", str(my_article_count), "📄"),
             ("Pending Sync", str(pending_sync), "⏳"),
             ("Status", "Online" if is_online else "Offline", "🌐"),
         ]
@@ -195,7 +198,7 @@ class UserDashboard:
 
         tk.Label(
             header_frame,
-            text="My Articles",
+            text="All Articles",
             font=("Arial", 16, "bold"),
             bg="white"
         ).pack(side=tk.LEFT)
@@ -212,11 +215,11 @@ class UserDashboard:
         ).pack(side=tk.RIGHT, ipady=6, ipadx=12)
 
         try:
-            # FIXED: Only show user's own articles
-            articles = self.db.get_articles_by_user(self.user['id'])
+            # FIXED: Show ALL articles (not just user's own)
+            articles = self.db.get_all_articles()
 
             if articles:
-                columns = ("ID", "Name", "Mould", "Size", "Gender", "Date", "Sync", "Image")
+                columns = ("ID", "Name", "Mould", "Size", "Gender", "Created By", "Date", "Sync", "Image")
 
                 tree_frame = tk.Frame(self.content_frame, bg="white")
                 tree_frame.pack(fill=tk.BOTH, expand=True, pady=10)
@@ -224,13 +227,14 @@ class UserDashboard:
                 tree = ttk.Treeview(tree_frame, columns=columns, height=18, show="headings")
 
                 tree.column("ID", width=100)
-                tree.column("Name", width=180)
-                tree.column("Mould", width=110)
-                tree.column("Size", width=90)
-                tree.column("Gender", width=90)
-                tree.column("Date", width=110)
+                tree.column("Name", width=170)
+                tree.column("Mould", width=100)
+                tree.column("Size", width=80)
+                tree.column("Gender", width=80)
+                tree.column("Created By", width=100)
+                tree.column("Date", width=100)
                 tree.column("Sync", width=80)
-                tree.column("Image", width=80)
+                tree.column("Image", width=70)
 
                 for col in columns:
                     tree.heading(col, text=col)
@@ -244,10 +248,14 @@ class UserDashboard:
                         article.mould,
                         article.size,
                         article.gender,
+                        article.created_by[:8],
                         article.created_at.strftime("%Y-%m-%d"),
                         sync_status,
                         has_image
                     ))
+
+                # Store articles for preview lookup
+                self._articles = articles
 
                 # Double-click to preview image
                 tree.bind("<Double-1>", lambda e: self.preview_article_image(tree))
@@ -305,12 +313,12 @@ class UserDashboard:
         article_id_short = values[0]
         
         # Find full article by short ID
-        articles = self.db.get_articles_by_user(self.user['id'])
         article = None
-        for a in articles:
-            if a.id.startswith(article_id_short):
-                article = a
-                break
+        if hasattr(self, '_articles'):
+            for a in self._articles:
+                if a.id.startswith(article_id_short):
+                    article = a
+                    break
         
         if not article or not article.image_path:
             messagebox.showinfo("No Image", "This article has no image")
