@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""User Dashboard - WITH ROBUST IMAGE PREVIEW
+"""User Dashboard - WITH MANDATORY FTP UPLOAD
 
 All features:
 - Shows ALL articles (not just user's own)
+- MANDATORY FTP upload for images
+- Firebase stores ONLY FTP URLs (no local paths)
 - Image preview with validation
-- Handles missing/inaccessible images gracefully
-- FTP image upload
-- Firebase sync
+- Article creation blocked if FTP upload fails
 """
 
 import tkinter as tk
@@ -141,7 +141,6 @@ class UserDashboard:
         ).pack(anchor=tk.W, pady=(0, 20))
 
         try:
-            # Show ALL articles
             all_articles = self.db.get_all_articles()
             my_articles = [a for a in all_articles if a.created_by == self.user['id']]
             total_articles = len(all_articles)
@@ -217,7 +216,6 @@ class UserDashboard:
         ).pack(side=tk.RIGHT, ipady=6, ipadx=12)
 
         try:
-            # Show ALL articles
             articles = self.db.get_all_articles()
 
             if articles:
@@ -256,10 +254,7 @@ class UserDashboard:
                         has_image
                     ))
 
-                # Store articles for preview lookup
                 self._articles = articles
-
-                # Double-click to preview image
                 tree.bind("<Double-1>", lambda e: self.preview_article_image(tree))
 
                 scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=tree.yview)
@@ -314,7 +309,6 @@ class UserDashboard:
         values = tree.item(selection[0], 'values')
         article_id_short = values[0]
         
-        # Find full article by short ID
         article = None
         if hasattr(self, '_articles'):
             for a in self._articles:
@@ -329,52 +323,42 @@ class UserDashboard:
         if not article.image_path:
             messagebox.showinfo(
                 "No Image", 
-                f"Article: {article.article_name}\n\nNo image attached to this article.\n\nYou can add an image by editing the article."
+                f"Article: {article.article_name}\n\nNo image attached to this article."
             )
             return
         
         self.show_image_preview(article.image_path, article.article_name)
 
     def check_image_exists(self, image_path):
-        """Check if image exists (URL or local file)"""
+        """Check if image exists (URL only - no local files)"""
         try:
             if image_path.startswith(('http://', 'https://')):
-                # Check if URL is accessible
                 req = urllib.request.Request(image_path, method='HEAD')
                 with urllib.request.urlopen(req, timeout=5) as response:
                     return response.status == 200
-            else:
-                # Check if local file exists
-                return os.path.exists(image_path) and os.path.isfile(image_path)
+            return False  # Local paths not supported
         except:
             return False
 
     def show_image_preview(self, image_path, title="Image Preview"):
-        """Show image preview - handles BOTH local files and URLs with validation"""
+        """Show image preview - handles ONLY URLs (FTP uploaded images)"""
         try:
-            # First check if image exists
             if not self.check_image_exists(image_path):
                 messagebox.showerror(
                     "Image Not Found",
                     f"Image for: {title}\n\n"
-                    f"The image file is not accessible:\n{image_path}\n\n"
+                    f"The image is not accessible:\n{image_path}\n\n"
                     f"Possible reasons:\n"
                     f"• Image was deleted from FTP server\n"
-                    f"• Local file was moved/deleted\n"
                     f"• Network connection issue\n"
                     f"• Invalid image URL"
                 )
                 return
             
-            # Load image
-            if image_path.startswith(('http://', 'https://')):
-                # It's a URL - download it
-                with urllib.request.urlopen(image_path, timeout=10) as url:
-                    image_data = url.read()
-                image = Image.open(io.BytesIO(image_data))
-            else:
-                # It's a local file path
-                image = Image.open(image_path)
+            # Download and display image from URL
+            with urllib.request.urlopen(image_path, timeout=10) as url:
+                image_data = url.read()
+            image = Image.open(io.BytesIO(image_data))
             
             # Resize if too large
             max_size = (600, 600)
@@ -387,24 +371,21 @@ class UserDashboard:
             preview.transient(self.root)
             preview.grab_set()
             
-            # Convert to PhotoImage
             photo = ImageTk.PhotoImage(image)
             
             label = tk.Label(preview, image=photo)
-            label.image = photo  # Keep reference
+            label.image = photo
             label.pack(padx=10, pady=10)
             
             tk.Label(
                 preview,
-                text=f"📸 {title}",
+                text=f"📷 {title}",
                 font=("Arial", 10, "bold")
             ).pack(pady=5)
             
-            # Show image source info
-            source_type = "URL" if image_path.startswith(('http://', 'https://')) else "Local File"
             tk.Label(
                 preview,
-                text=f"Source: {source_type}",
+                text=f"Source: FTP Server",
                 font=("Arial", 8),
                 fg="#666"
             ).pack(pady=(0, 5))
@@ -419,22 +400,6 @@ class UserDashboard:
                 cursor="hand2"
             ).pack(pady=10, ipady=5, ipadx=20)
             
-        except urllib.error.HTTPError as e:
-            self.logger.error(f"HTTP error loading image: {e}")
-            messagebox.showerror(
-                "Image Not Found",
-                f"Image for: {title}\n\n"
-                f"HTTP Error {e.code}: The image could not be loaded from the server.\n\n"
-                f"The image may have been deleted from the FTP server."
-            )
-        except urllib.error.URLError as e:
-            self.logger.error(f"URL error loading image: {e}")
-            messagebox.showerror(
-                "Network Error",
-                f"Image for: {title}\n\n"
-                f"Could not connect to image server.\n\n"
-                f"Please check your internet connection."
-            )
         except Exception as e:
             self.logger.error(f"Error loading image: {e}")
             messagebox.showerror(
@@ -447,7 +412,7 @@ class UserDashboard:
     def create_article(self):
         dialog = tk.Toplevel(self.root)
         dialog.title("Create Article")
-        dialog.geometry("550x750")
+        dialog.geometry("550x800")
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
@@ -554,6 +519,18 @@ class UserDashboard:
         status_label = tk.Label(dialog, text="", font=("Arial", 9), fg="blue")
         status_label.pack(pady=5)
 
+        # Warning about FTP requirement
+        warning_frame = tk.Frame(dialog, bg="#fff3cd", relief=tk.SOLID, bd=1)
+        warning_frame.pack(fill=tk.X, padx=20, pady=10)
+        tk.Label(
+            warning_frame,
+            text="⚠️ Images MUST be uploaded to FTP server before saving.\nArticles with images cannot be saved if FTP upload fails.",
+            font=("Arial", 8),
+            bg="#fff3cd",
+            fg="#856404",
+            justify=tk.LEFT
+        ).pack(padx=10, pady=8)
+
         def save_article():
             try:
                 article_name = article_name_entry.get().strip()
@@ -566,18 +543,37 @@ class UserDashboard:
                     return
 
                 image_url = None
+                
+                # MANDATORY FTP upload if image selected
                 if self.selected_image_path:
-                    status_label.config(text="⏳ Uploading image to FTP...", fg="blue")
+                    status_label.config(text="⏳ Uploading image to FTP server...", fg="blue")
                     dialog.update()
+                    
                     image_url = self.ftp.upload_image(self.selected_image_path)
-                    if image_url:
-                        status_label.config(text="✅ Image uploaded to FTP!", fg="green")
+                    
+                    if not image_url:
+                        status_label.config(text="❌ FTP upload failed!", fg="red")
+                        dialog.update()
+                        
+                        result = messagebox.askyesno(
+                            "FTP Upload Failed",
+                            "Image could not be uploaded to FTP server.\n\n"
+                            "Possible reasons:\n"
+                            "• FTP credentials not configured\n"
+                            "• FTP server unreachable\n"
+                            "• Network connection issue\n\n"
+                            "Do you want to save article WITHOUT image?"
+                        )
+                        
+                        if not result:
+                            return  # Cancel article creation
+                        else:
+                            image_url = None  # Save without image
                     else:
-                        # If FTP upload fails, save local path as fallback
-                        image_url = self.selected_image_path
-                        status_label.config(text="⚠️ FTP failed, using local path", fg="orange")
-                    dialog.update()
+                        status_label.config(text="✅ Image uploaded to FTP!", fg="green")
+                        dialog.update()
 
+                # Create article with FTP URL ONLY (no local paths)
                 article = Article(
                     id=article_id,
                     article_name=article_name,
@@ -588,10 +584,11 @@ class UserDashboard:
                     created_at=datetime.now(),
                     updated_at=datetime.now(),
                     sync_status=0,
-                    image_path=image_url
+                    image_path=image_url  # FTP URL or None
                 )
 
                 if self.db.add_article(article):
+                    # Sync to Firebase with FTP URL
                     if self.firebase and self.firebase.is_connected():
                         synced = self.firebase.sync_articles([article.to_dict()])
                         if synced:
