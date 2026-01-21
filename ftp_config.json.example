@@ -1,0 +1,9 @@
+{
+  "host": "ftp.yourdomain.com",
+  "username": "your_ftp_username",
+  "password": "your_ftp_password",
+  "remote_dir": "/public_html/articles/images",
+  "base_url": "https://yourdomain.com/articles/images",
+  "timeout": 30,
+  "passive_mode": true
+}
