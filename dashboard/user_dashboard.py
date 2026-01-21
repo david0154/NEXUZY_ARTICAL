@@ -3,9 +3,9 @@
 
 All features:
 - Shows ALL articles (not just user's own)
-- MANDATORY FTP upload for images
-- Firebase stores ONLY FTP URLs (no local paths)
-- Image preview with caching
+- MANDATORY FTP upload for images  
+- Firebase stores ONLY FTP PATHS (not URLs)
+- Image preview with FTP authentication
 - Article creation blocked if FTP upload fails
 """
 
@@ -17,9 +17,6 @@ import os
 import random
 import string
 from PIL import Image, ImageTk
-import urllib.request
-import urllib.error
-import io
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -332,7 +329,7 @@ class UserDashboard:
         self.show_image_preview(article.image_path, article.article_name)
 
     def show_image_preview(self, image_path, title="Image Preview"):
-        """Show image preview with caching support"""
+        """Show image preview with FTP authentication"""
         try:
             # Create preview window first
             preview = tk.Toplevel(self.root)
@@ -356,7 +353,7 @@ class UserDashboard:
             # Loading label
             loading_label = tk.Label(
                 preview,
-                text="Loading image...",
+                text="⏳ Loading image from FTP server...",
                 font=("Arial", 11),
                 fg="gray"
             )
@@ -371,30 +368,36 @@ class UserDashboard:
                     img = None
                     source_label = "Loading..."
 
-                    # Try cached image first
-                    cached_path = self.image_sync.get_cached_path(image_path)
-                    if cached_path and os.path.exists(cached_path):
-                        self.logger.info(f"Loading from cache: {cached_path}")
-                        img = Image.open(cached_path)
-                        source_label = "Source: Local Cache"
-                    else:
-                        # Download and cache
-                        if image_path.startswith(('http://', 'https://')):
-                            loading_label.config(text="Downloading from FTP server...")
+                    # Check if FTP path (starts with /)
+                    if image_path.startswith('/'):
+                        # FTP PATH - download via FTP auth
+                        self.logger.info(f"FTP path detected: {image_path}")
+                        
+                        # Try cached image first
+                        cached_path = self.image_sync.get_cached_path(image_path)
+                        if cached_path and os.path.exists(cached_path):
+                            self.logger.info(f"Loading from cache: {cached_path}")
+                            img = Image.open(cached_path)
+                            source_label = "Source: Local Cache"
+                        else:
+                            # Download via FTP
+                            loading_label.config(text="📥 Downloading from FTP server (with auth)...")
                             preview.update()
                             
                             cached_path = self.image_sync.download_image(image_path)
                             if cached_path and os.path.exists(cached_path):
                                 img = Image.open(cached_path)
-                                source_label = "Source: FTP Server (now cached)"
+                                source_label = "Source: FTP Server (authenticated, now cached)"
+                                self.logger.info(f"Downloaded and cached: {cached_path}")
                             else:
-                                # Fallback: direct download
-                                with urllib.request.urlopen(image_path, timeout=10) as response:
-                                    img_data = response.read()
-                                    img = Image.open(io.BytesIO(img_data))
-                                source_label = "Source: FTP Server (direct)"
+                                raise Exception("FTP download failed - check FTP credentials")
+                    else:
+                        # Fallback: local file path
+                        if os.path.exists(image_path):
+                            img = Image.open(image_path)
+                            source_label = "Source: Local File"
                         else:
-                            raise ValueError("Invalid image path (must be FTP URL)")
+                            raise FileNotFoundError(f"Invalid image path: {image_path}")
 
                     loading_label.destroy()
 
@@ -427,21 +430,12 @@ class UserDashboard:
                         fg="gray"
                     ).pack()
 
-                    if image_path.startswith(('http://', 'https://')):
-                        url_label = tk.Label(
-                            info_frame,
-                            text=image_path,
-                            font=("Arial", 8, "underline"),
-                            fg="blue",
-                            cursor="hand2"
-                        )
-                        url_label.pack()
-
-                        def open_url(e):
-                            import webbrowser
-                            webbrowser.open(image_path)
-
-                        url_label.bind("<Button-1>", open_url)
+                    tk.Label(
+                        info_frame,
+                        text=f"FTP Path: {image_path}",
+                        font=("Arial", 8),
+                        fg="blue"
+                    ).pack()
 
                     # Close button
                     tk.Button(
@@ -454,8 +448,37 @@ class UserDashboard:
                     ).pack(pady=10, ipady=5, ipadx=20)
 
                 except Exception as e:
-                    loading_label.config(text=f"Error: {str(e)}", fg="red")
+                    loading_label.config(text=f"❌ Error: {str(e)}", fg="red")
                     self.logger.error(f"Error loading image: {e}")
+                    
+                    # Show error details
+                    tk.Label(
+                        image_frame,
+                        text="Troubleshooting:",
+                        font=("Arial", 9, "bold"),
+                        fg="red"
+                    ).pack(pady=(10, 5))
+                    
+                    tk.Label(
+                        image_frame,
+                        text="• Check FTP credentials in ftp_config.json",
+                        font=("Arial", 8),
+                        fg="#666"
+                    ).pack()
+                    
+                    tk.Label(
+                        image_frame,
+                        text="• Verify image exists on FTP server",
+                        font=("Arial", 8),
+                        fg="#666"
+                    ).pack()
+                    
+                    tk.Label(
+                        image_frame,
+                        text="• Check network connection",
+                        font=("Arial", 8),
+                        fg="#666"
+                    ).pack()
 
             # Load in background
             preview.after(100, load_and_display)
@@ -579,7 +602,7 @@ class UserDashboard:
         warning_frame.pack(fill=tk.X, padx=20, pady=10)
         tk.Label(
             warning_frame,
-            text="⚠️ Images MUST be uploaded to FTP server before saving.\nArticles with images cannot be saved if FTP upload fails.",
+            text="⚠️ Images uploaded to FTP server.\nFirebase stores FTP path (not URL).",
             font=("Arial", 8),
             bg="#fff3cd",
             fg="#856404",
@@ -597,38 +620,34 @@ class UserDashboard:
                     messagebox.showerror("Error", "Please fill all required fields")
                     return
 
-                image_url = None
+                ftp_path = None
                 
-                # MANDATORY FTP upload if image selected
+                # Upload to FTP if image selected
                 if self.selected_image_path:
                     status_label.config(text="⏳ Uploading image to FTP server...", fg="blue")
                     dialog.update()
                     
-                    image_url = self.ftp.upload_image(self.selected_image_path)
+                    ftp_path = self.ftp.upload_image(self.selected_image_path)
                     
-                    if not image_url:
+                    if not ftp_path:
                         status_label.config(text="❌ FTP upload failed!", fg="red")
                         dialog.update()
                         
                         result = messagebox.askyesno(
                             "FTP Upload Failed",
                             "Image could not be uploaded to FTP server.\n\n"
-                            "Possible reasons:\n"
-                            "• FTP credentials not configured\n"
-                            "• FTP server unreachable\n"
-                            "• Network connection issue\n\n"
                             "Do you want to save article WITHOUT image?"
                         )
                         
                         if not result:
                             return  # Cancel article creation
                         else:
-                            image_url = None  # Save without image
+                            ftp_path = None  # Save without image
                     else:
-                        status_label.config(text="✅ Image uploaded to FTP!", fg="green")
+                        status_label.config(text=f"✅ Uploaded! Path: {ftp_path}", fg="green")
                         dialog.update()
 
-                # Create article with FTP URL ONLY (no local paths)
+                # Create article with FTP PATH (not URL)
                 article = Article(
                     id=article_id,
                     article_name=article_name,
@@ -639,11 +658,11 @@ class UserDashboard:
                     created_at=datetime.now(),
                     updated_at=datetime.now(),
                     sync_status=0,
-                    image_path=image_url  # FTP URL or None
+                    image_path=ftp_path  # FTP PATH (e.g., /nexuzy/article_*.jpg)
                 )
 
                 if self.db.add_article(article):
-                    # Sync to Firebase with FTP URL
+                    # Sync to Firebase with FTP PATH
                     if self.firebase and self.firebase.is_connected():
                         synced = self.firebase.sync_articles([article.to_dict()])
                         if synced:
