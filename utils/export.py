@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Export Module - PDF and Excel Export Functionality
-Supports exporting articles and user data
+Export Module - PDF and Excel Export Functionality with Images
+Supports exporting articles and user data with embedded images
 """
 
 import os
 import sys
 from datetime import datetime
 from typing import List, Dict
+from io import BytesIO
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -15,7 +16,7 @@ try:
     from reportlab.lib.pagesizes import letter, A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak, Image as RLImage
     from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
     from reportlab.lib import colors
     HAS_REPORTLAB = True
@@ -26,28 +27,76 @@ try:
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
+    from openpyxl.drawing.image import Image as XLImage
     HAS_OPENPYXL = True
 except ImportError:
     HAS_OPENPYXL = False
 
+from PIL import Image
 from utils.logger import Logger
 
 
 class ExportManager:
-    """Manages data export to PDF and Excel formats"""
+    """Manages data export to PDF and Excel formats with embedded images"""
 
     def __init__(self):
         self.logger = Logger(__name__)
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # Primary color - stored with # for PDF compatibility
-        self.PRIMARY_HEX = "#1f77d4"
+        # Primary color - HEX to RGB conversion for ReportLab
+        # #1f77d4 = RGB(31, 119, 212)
+        self.PRIMARY_RGB = (31, 119, 212)  # From #1f77d4
         self.PRIMARY_HEX_EXCEL = "1f77d4"
-        self.SECONDARY_HEX = "#f0f0f0"
         self.SECONDARY_HEX_EXCEL = "f0f0f0"
+        
+        # Import image_sync for FTP downloads
+        try:
+            from utils.image_sync import get_image_sync
+            self.image_sync = get_image_sync()
+        except Exception as e:
+            self.logger.warning(f"Image sync not available: {e}")
+            self.image_sync = None
+
+    def _download_image(self, image_path: str, max_width: int = 100, max_height: int = 100) -> str:
+        """
+        Download image from FTP path and return local cached path
+        
+        Args:
+            image_path: FTP path (e.g., /nexuzy/article_*.jpg)
+            max_width: Max width in pixels
+            max_height: Max height in pixels
+        
+        Returns:
+            Local file path or None if download fails
+        """
+        try:
+            if not image_path:
+                return None
+            
+            # If it's already a local path, use it directly
+            if not image_path.startswith('/'):
+                if os.path.exists(image_path):
+                    return image_path
+                return None
+            
+            # FTP path - download via image_sync
+            if self.image_sync:
+                cached_path = self.image_sync.get_cached_path(image_path)
+                if cached_path and os.path.exists(cached_path):
+                    return cached_path
+                
+                # Download if not cached
+                cached_path = self.image_sync.download_image(image_path)
+                if cached_path and os.path.exists(cached_path):
+                    return cached_path
+            
+            return None
+        except Exception as e:
+            self.logger.debug(f"Image download failed for {image_path}: {e}")
+            return None
 
     def export_articles_to_excel(self, articles: List[Dict], output_path: str = None) -> str:
         """
-        Export articles to Excel file
+        Export articles to Excel file with embedded images
         
         Args:
             articles: List of article dictionaries
@@ -77,7 +126,7 @@ class ExportManager:
             )
 
             # Headers
-            headers = ["ID", "Article Name", "Mould", "Size", "Gender", "Created By", "Created Date", "Updated Date", "Sync Status"]
+            headers = ["Image", "ID", "Article Name", "Mould", "Size", "Gender", "Created By", "Created Date", "Sync Status"]
             ws.append(headers)
 
             # Format headers
@@ -87,9 +136,22 @@ class ExportManager:
                 cell.alignment = Alignment(horizontal="center", vertical="center")
                 cell.border = border
 
+            # Set column widths
+            ws.column_dimensions['A'].width = 15  # Image column
+            ws.column_dimensions['B'].width = 10  # ID
+            ws.column_dimensions['C'].width = 20  # Article Name
+            ws.column_dimensions['D'].width = 12  # Mould
+            ws.column_dimensions['E'].width = 10  # Size
+            ws.column_dimensions['F'].width = 12  # Gender
+            ws.column_dimensions['G'].width = 12  # Created By
+            ws.column_dimensions['H'].width = 15  # Created Date
+            ws.column_dimensions['I'].width = 12  # Sync Status
+
             # Add data rows
-            for article in articles:
+            for idx, article in enumerate(articles, start=2):
+                # Text data
                 row = [
+                    "",  # Image placeholder
                     article.get('id', '')[:8],
                     article.get('article_name', ''),
                     article.get('mould', ''),
@@ -97,30 +159,32 @@ class ExportManager:
                     article.get('gender', ''),
                     article.get('created_by', '')[:8],
                     article.get('created_at', '')[:10],
-                    article.get('updated_at', '')[:10],
                     "Synced" if article.get('sync_status', 0) == 1 else "Pending"
                 ]
                 ws.append(row)
 
                 # Format data cells
-                for cell in ws[ws.max_row]:
+                for cell in ws[idx]:
                     cell.border = border
                     cell.alignment = Alignment(horizontal="left", vertical="center")
 
-            # Auto-adjust column widths
-            for column in ws.columns:
-                max_length = 0
-                column_letter = get_column_letter(column[0].column)
-                for cell in column:
-                    try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(cell.value)
-                    except:
-                        pass
-                adjusted_width = (max_length + 2)
-                ws.column_dimensions[column_letter].width = adjusted_width
+                # Try to embed image
+                image_path = article.get('image_path')
+                if image_path:
+                    local_img = self._download_image(image_path)
+                    if local_img:
+                        try:
+                            # Add image to cell
+                            xl_image = XLImage(local_img)
+                            xl_image.width = 80
+                            xl_image.height = 80
+                            ws.add_image(xl_image, f'A{idx}')
+                            ws.row_dimensions[idx].height = 90  # Adjust row height for image
+                        except Exception as e:
+                            self.logger.debug(f"Could not embed image: {e}")
+                            ws['A' + str(idx)] = "[Image Error]"
 
-            # Set row heights
+            # Set header row height
             ws.row_dimensions[1].height = 25
 
             # Create output path
@@ -136,7 +200,7 @@ class ExportManager:
 
             # Save workbook
             wb.save(output_path)
-            self.logger.info(f"Articles exported to Excel: {output_path}")
+            self.logger.info(f"Articles exported to Excel with images: {output_path}")
             return output_path
 
         except Exception as e:
@@ -233,7 +297,7 @@ class ExportManager:
 
     def export_articles_to_pdf(self, articles: List[Dict], output_path: str = None) -> str:
         """
-        Export articles to PDF file
+        Export articles to PDF file with embedded images
         
         Args:
             articles: List of article dictionaries
@@ -266,13 +330,13 @@ class ExportManager:
                 bottomMargin=0.75*inch
             )
 
-            # Styles
+            # Styles with proper color
             styles = getSampleStyleSheet()
             title_style = ParagraphStyle(
                 'CustomTitle',
                 parent=styles['Heading1'],
                 fontSize=20,
-                textColor=colors.HexColor(self.PRIMARY_HEX),
+                textColor=colors.Color(*[c/255.0 for c in self.PRIMARY_RGB]),  # Convert RGB to 0-1 range
                 spaceAfter=30,
                 alignment=TA_CENTER,
                 fontName='Helvetica-Bold'
@@ -298,52 +362,46 @@ class ExportManager:
             ))
             story.append(Spacer(1, 0.3*inch))
 
-            # Table data
-            table_data = [[
-                "ID", "Article Name", "Mould", "Size", "Gender", "Created By", "Date"
-            ]]
-
+            # Process articles with images
             for article in articles:
-                table_data.append([
-                    article.get('id', '')[:6],
-                    article.get('article_name', '')[:20],
-                    article.get('mould', ''),
-                    article.get('size', ''),
-                    article.get('gender', ''),
-                    article.get('created_by', '')[:6],
-                    article.get('created_at', '')[:10]
-                ])
+                # Article header
+                story.append(Paragraph(
+                    f"<b>{article.get('article_name', 'N/A')}</b> (ID: {article.get('id', '')[:8]})",
+                    ParagraphStyle('ArticleTitle', parent=styles['Heading3'], fontSize=12, spaceAfter=10)
+                ))
 
-            # Create table
-            table = Table(
-                table_data,
-                colWidths=[0.8*inch, 1.5*inch, 0.8*inch, 0.6*inch, 0.7*inch, 0.8*inch, 0.9*inch]
-            )
-
-            # Style table
-            table.setStyle(TableStyle([
-                # Header
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(self.PRIMARY_HEX)),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, 0), 10),
-                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-
-                # Data rows
-                ('ALIGN', (0, 1), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 1), (-1, -1), 9),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor(self.SECONDARY_HEX)]),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                ('TOPPADDING', (0, 1), (-1, -1), 8),
-                ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
-            ]))
-
-            story.append(table)
-            story.append(Spacer(1, 0.5*inch))
+                # Try to embed image
+                image_path = article.get('image_path')
+                if image_path:
+                    local_img = self._download_image(image_path, max_width=200, max_height=200)
+                    if local_img:
+                        try:
+                            # Validate image before adding
+                            img = Image.open(local_img)
+                            img.verify()  # Check if valid image
+                            
+                            # Add image
+                            rl_image = RLImage(local_img, width=2*inch, height=2*inch)
+                            story.append(rl_image)
+                            story.append(Spacer(1, 0.1*inch))
+                        except Exception as e:
+                            self.logger.debug(f"Could not add image to PDF: {e}")
+                            story.append(Paragraph("[Image not available]", styles['Normal']))
+                
+                # Article details
+                details = f"""
+                <b>Mould:</b> {article.get('mould', 'N/A')}<br/>
+                <b>Size:</b> {article.get('size', 'N/A')}<br/>
+                <b>Gender:</b> {article.get('gender', 'N/A')}<br/>
+                <b>Created:</b> {article.get('created_at', 'N/A')[:10]}<br/>
+                <b>Status:</b> {'Synced' if article.get('sync_status', 0) == 1 else 'Pending'}
+                """
+                story.append(Paragraph(details, styles['Normal']))
+                story.append(Spacer(1, 0.2*inch))
+                story.append(Paragraph("<hr/>", styles['Normal']))
 
             # Footer
+            story.append(Spacer(1, 0.3*inch))
             footer_text = Paragraph(
                 f"<i>Total Articles: {len(articles)} | Export generated by NEXUZY ARTICAL</i>",
                 ParagraphStyle(
@@ -358,7 +416,7 @@ class ExportManager:
 
             # Build PDF
             doc.build(story)
-            self.logger.info(f"Articles exported to PDF: {output_path}")
+            self.logger.info(f"Articles exported to PDF with images: {output_path}")
             return output_path
 
         except Exception as e:
@@ -404,7 +462,7 @@ class ExportManager:
                 'CustomTitle',
                 parent=styles['Heading1'],
                 fontSize=20,
-                textColor=colors.HexColor(self.PRIMARY_HEX),
+                textColor=colors.Color(*[c/255.0 for c in self.PRIMARY_RGB]),  # Convert RGB to 0-1 range
                 spaceAfter=30,
                 alignment=TA_CENTER,
                 fontName='Helvetica-Bold'
@@ -438,7 +496,7 @@ class ExportManager:
             )
 
             table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(self.PRIMARY_HEX)),
+                ('BACKGROUND', (0, 0), (-1, 0), colors.Color(*[c/255.0 for c in self.PRIMARY_RGB])),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
                 ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
                 ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
@@ -447,7 +505,7 @@ class ExportManager:
                 ('ALIGN', (0, 1), (-1, -1), 'LEFT'),
                 ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
                 ('FONTSIZE', (0, 1), (-1, -1), 9),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor(self.SECONDARY_HEX)]),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor(self.SECONDARY_HEX_EXCEL)]),
                 ('GRID', (0, 0), (-1, -1), 1, colors.black),
                 ('TOPPADDING', (0, 1), (-1, -1), 8),
                 ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
