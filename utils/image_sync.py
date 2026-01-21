@@ -1,23 +1,21 @@
 #!/usr/bin/env python3
 """Image Sync Utility
 
-Automatically downloads images from Firebase URLs when app starts on fresh system.
-Creates local cache for faster loading.
+Automatically downloads images from FTP paths when app starts on fresh system.
+Uses FTP authentication to download images (not public URLs).
 """
 
 import os
 import logging
-import urllib.request
-import urllib.error
+import hashlib
 from pathlib import Path
 from typing import List, Optional
-import hashlib
 
 logger = logging.getLogger(__name__)
 
 
 class ImageSyncManager:
-    """Manages image synchronization and local caching"""
+    """Manages image synchronization and local caching via FTP"""
 
     def __init__(self, cache_dir: str = None):
         """
@@ -32,6 +30,7 @@ class ImageSyncManager:
         
         self.cache_dir = cache_dir
         self._ensure_cache_dir()
+        self.ftp = None
 
     def _ensure_cache_dir(self):
         """Create cache directory if it doesn't exist"""
@@ -41,28 +40,35 @@ class ImageSyncManager:
         except Exception as e:
             logger.error(f"Failed to create cache directory: {e}")
 
-    def _get_cache_filename(self, url: str) -> str:
-        """Generate cache filename from URL"""
-        # Use hash of URL as filename to avoid conflicts
-        url_hash = hashlib.md5(url.encode()).hexdigest()[:12]
-        # Get file extension from URL
-        ext = os.path.splitext(url.split('?')[0])[1] or '.jpg'
-        return f"{url_hash}{ext}"
+    def _get_ftp(self):
+        """Get FTP uploader instance (lazy load)"""
+        if self.ftp is None:
+            from utils.ftp_uploader import get_ftp_uploader
+            self.ftp = get_ftp_uploader()
+        return self.ftp
 
-    def get_cached_path(self, url: str) -> Optional[str]:
+    def _get_cache_filename(self, ftp_path: str) -> str:
+        """Generate cache filename from FTP path"""
+        # Use hash of path as filename to avoid conflicts
+        path_hash = hashlib.md5(ftp_path.encode()).hexdigest()[:12]
+        # Get file extension from path
+        ext = os.path.splitext(ftp_path)[1] or '.jpg'
+        return f"{path_hash}{ext}"
+
+    def get_cached_path(self, ftp_path: str) -> Optional[str]:
         """
-        Get local cached path for image URL.
+        Get local cached path for FTP image path.
         
         Args:
-            url: Image URL
+            ftp_path: FTP path (e.g., /nexuzy/article_*.jpg)
             
         Returns:
             Local path to cached image, or None if not cached
         """
-        if not url or not url.startswith(('http://', 'https://')):
+        if not ftp_path or not ftp_path.startswith('/'):
             return None
         
-        cache_filename = self._get_cache_filename(url)
+        cache_filename = self._get_cache_filename(ftp_path)
         cache_path = os.path.join(self.cache_dir, cache_filename)
         
         if os.path.exists(cache_path):
@@ -70,22 +76,23 @@ class ImageSyncManager:
         
         return None
 
-    def download_image(self, url: str, force: bool = False) -> Optional[str]:
+    def download_image(self, ftp_path: str, force: bool = False) -> Optional[str]:
         """
-        Download image from URL to local cache.
+        Download image from FTP path to local cache using FTP authentication.
         
         Args:
-            url: Image URL to download
+            ftp_path: FTP path to download (e.g., /nexuzy/article_*.jpg)
             force: Force re-download even if cached
             
         Returns:
             Local path to downloaded image, or None if download failed
         """
         try:
-            if not url or not url.startswith(('http://', 'https://')):
+            if not ftp_path or not ftp_path.startswith('/'):
+                logger.warning(f"Invalid FTP path: {ftp_path}")
                 return None
 
-            cache_filename = self._get_cache_filename(url)
+            cache_filename = self._get_cache_filename(ftp_path)
             cache_path = os.path.join(self.cache_dir, cache_filename)
 
             # Check if already cached
@@ -93,31 +100,24 @@ class ImageSyncManager:
                 logger.debug(f"Image already cached: {cache_filename}")
                 return cache_path
 
-            # Download image
-            logger.info(f"Downloading image: {url}")
-            with urllib.request.urlopen(url, timeout=10) as response:
-                image_data = response.read()
+            # Download via FTP
+            logger.info(f"Downloading image via FTP: {ftp_path}")
+            ftp = self._get_ftp()
+            
+            if ftp.download_image(ftp_path, cache_path):
+                logger.info(f"Image cached: {cache_filename}")
+                return cache_path
+            else:
+                logger.error(f"FTP download failed for: {ftp_path}")
+                return None
 
-            # Save to cache
-            with open(cache_path, 'wb') as f:
-                f.write(image_data)
-
-            logger.info(f"Image cached: {cache_filename}")
-            return cache_path
-
-        except urllib.error.HTTPError as e:
-            logger.warning(f"HTTP error downloading image {url}: {e.code}")
-            return None
-        except urllib.error.URLError as e:
-            logger.warning(f"URL error downloading image {url}: {e}")
-            return None
         except Exception as e:
-            logger.error(f"Failed to download image {url}: {e}")
+            logger.error(f"Failed to download image {ftp_path}: {e}")
             return None
 
     def sync_articles_images(self, articles: List) -> dict:
         """
-        Sync images for all articles from Firebase URLs.
+        Sync images for all articles from FTP paths.
         
         Args:
             articles: List of article objects with image_path attributes

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """FTP Image Uploader Utility
 
-Handles uploading article images to FTP server and returns public URLs.
+Handles uploading article images to FTP server and returns FTP paths (not URLs).
 Author: Manoj Konar (monoj@nexuzy.in)
 """
 
@@ -31,7 +31,7 @@ class FTPUploader:
             username: FTP username
             password: FTP password
             remote_dir: Remote directory path on FTP server
-            base_url: Public base URL for accessing uploaded files
+            base_url: Public base URL (not used for blocked servers)
         """
         # Try to load from ftp_config.json first
         self._load_config()
@@ -62,7 +62,7 @@ class FTPUploader:
                     self.remote_dir = config.get('remote_dir') or config.get('ftp_remote_dir', '/public_html/articles/images')
                     self.base_url = (config.get('public_url_base') or config.get('ftp_base_url', 'https://yourdomain.com/articles/images')).rstrip('/')
                     
-                    logger.info(f"FTP config loaded: {self.host}:{self.port} -> {self.base_url}")
+                    logger.info(f"FTP config loaded: {self.host}:{self.port}")
                     logger.info(f"Remote directory: {self.remote_dir}")
                     return
         except Exception as e:
@@ -169,7 +169,7 @@ class FTPUploader:
             remote_filename: Optional custom filename (generated if not provided)
             
         Returns:
-            Public URL of uploaded image, or None if upload failed
+            FTP path (e.g., /nexuzy/article_20260121_123456.jpg), or None if upload failed
         """
         try:
             if not os.path.exists(local_path):
@@ -204,10 +204,10 @@ class FTPUploader:
             with open(local_path, 'rb') as file:
                 self.ftp.storbinary(f'STOR {remote_filename}', file)
 
-            # Construct public URL
-            public_url = f"{self.base_url}/{remote_filename}"
-            logger.info(f"✅ Image uploaded successfully: {public_url}")
-            return public_url
+            # Return FTP path (not URL)
+            ftp_path = f"{self.remote_dir}/{remote_filename}"
+            logger.info(f"✅ Image uploaded successfully to FTP: {ftp_path}")
+            return ftp_path
 
         except ftplib.error_perm as e:
             logger.error(f"FTP permission error during upload: {e}")
@@ -215,6 +215,50 @@ class FTPUploader:
         except Exception as e:
             logger.error(f"FTP upload failed: {e}")
             return None
+
+    def download_image(self, ftp_path: str, local_path: str) -> bool:
+        """Download image from FTP server with authentication
+        
+        Args:
+            ftp_path: FTP path (e.g., /nexuzy/article_*.jpg)
+            local_path: Local path to save file
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Connect if not already connected
+            if not self.connected:
+                if not self.connect():
+                    logger.error("Cannot download: FTP connection failed")
+                    return False
+
+            # Extract directory and filename from path
+            directory = os.path.dirname(ftp_path)
+            filename = os.path.basename(ftp_path)
+
+            # Change to directory
+            if directory:
+                try:
+                    self.ftp.cwd(directory)
+                except:
+                    logger.error(f"Cannot access directory: {directory}")
+                    return False
+
+            # Download file
+            logger.info(f"Downloading from FTP: {ftp_path}")
+            with open(local_path, 'wb') as file:
+                self.ftp.retrbinary(f'RETR {filename}', file.write)
+
+            logger.info(f"✅ Downloaded to: {local_path}")
+            return True
+
+        except ftplib.error_perm as e:
+            logger.error(f"FTP permission error during download: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"FTP download failed: {e}")
+            return False
 
     def delete_image(self, filename: str) -> bool:
         """Delete image from FTP server"""
