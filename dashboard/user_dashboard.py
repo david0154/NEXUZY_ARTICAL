@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""User Dashboard - COMPLETE WORKING VERSION
+"""User Dashboard - WITH IMAGE PREVIEW
 
 All features:
-- Proper window sizing (fills 100% of available space)
-- View articles
-- Create articles
+- Shows only user's own articles (not admin articles)
+- Image preview support
 - FTP image upload
 - Firebase sync
-- All buttons working
 """
 
 import tkinter as tk
@@ -17,6 +15,9 @@ import sys
 import os
 import random
 import string
+from PIL import Image, ImageTk
+import urllib.request
+import io
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -37,6 +38,7 @@ class UserDashboard:
         self.logger = logger
         self.ftp = get_ftp_uploader()
         self.selected_image_path = None
+        self.preview_photo = None
 
         self.root.deiconify()
         self.setup_ui()
@@ -115,7 +117,7 @@ class UserDashboard:
             btn.bind("<Enter>", lambda e, b=btn: b.config(bg="#e0e0e0"))
             btn.bind("<Leave>", lambda e, b=btn: b.config(bg="#f0f0f0"))
 
-        # FIXED: Content frame without canvas - fills 100% space
+        # Content frame
         self.content_frame = tk.Frame(main_frame, bg="white")
         self.content_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=20, pady=20)
 
@@ -137,6 +139,7 @@ class UserDashboard:
         ).pack(anchor=tk.W, pady=(0, 20))
 
         try:
+            # FIXED: Only show user's own articles
             my_articles = self.db.get_articles_by_user(self.user['id'])
             total_articles = len(my_articles)
             pending_sync = len([a for a in my_articles if a.sync_status == 0])
@@ -209,10 +212,11 @@ class UserDashboard:
         ).pack(side=tk.RIGHT, ipady=6, ipadx=12)
 
         try:
+            # FIXED: Only show user's own articles
             articles = self.db.get_articles_by_user(self.user['id'])
 
             if articles:
-                columns = ("ID", "Name", "Mould", "Size", "Gender", "Date", "Sync")
+                columns = ("ID", "Name", "Mould", "Size", "Gender", "Date", "Sync", "Image")
 
                 tree_frame = tk.Frame(self.content_frame, bg="white")
                 tree_frame.pack(fill=tk.BOTH, expand=True, pady=10)
@@ -220,18 +224,20 @@ class UserDashboard:
                 tree = ttk.Treeview(tree_frame, columns=columns, height=18, show="headings")
 
                 tree.column("ID", width=100)
-                tree.column("Name", width=200)
-                tree.column("Mould", width=120)
-                tree.column("Size", width=100)
-                tree.column("Gender", width=100)
-                tree.column("Date", width=120)
+                tree.column("Name", width=180)
+                tree.column("Mould", width=110)
+                tree.column("Size", width=90)
+                tree.column("Gender", width=90)
+                tree.column("Date", width=110)
                 tree.column("Sync", width=80)
+                tree.column("Image", width=80)
 
                 for col in columns:
                     tree.heading(col, text=col)
 
                 for article in articles:
                     sync_status = "Synced" if article.sync_status == 1 else "Pending"
+                    has_image = "✅ Yes" if article.image_path else "❌ No"
                     tree.insert("", tk.END, values=(
                         article.id[:8],
                         article.article_name,
@@ -239,14 +245,26 @@ class UserDashboard:
                         article.size,
                         article.gender,
                         article.created_at.strftime("%Y-%m-%d"),
-                        sync_status
+                        sync_status,
+                        has_image
                     ))
+
+                # Double-click to preview image
+                tree.bind("<Double-1>", lambda e: self.preview_article_image(tree))
 
                 scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=tree.yview)
                 tree.configure(yscroll=scrollbar.set)
 
                 tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
                 scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+                tk.Label(
+                    self.content_frame,
+                    text="💡 Tip: Double-click an article to view image",
+                    font=("Arial", 9, "italic"),
+                    bg="white",
+                    fg="#666"
+                ).pack(pady=5)
             else:
                 tk.Label(
                     self.content_frame,
@@ -277,10 +295,80 @@ class UserDashboard:
                 fg="red"
             ).pack(pady=30)
 
+    def preview_article_image(self, tree):
+        """Preview image when article is double-clicked"""
+        selection = tree.selection()
+        if not selection:
+            return
+        
+        values = tree.item(selection[0], 'values')
+        article_id_short = values[0]
+        
+        # Find full article by short ID
+        articles = self.db.get_articles_by_user(self.user['id'])
+        article = None
+        for a in articles:
+            if a.id.startswith(article_id_short):
+                article = a
+                break
+        
+        if not article or not article.image_path:
+            messagebox.showinfo("No Image", "This article has no image")
+            return
+        
+        self.show_image_preview(article.image_path, article.article_name)
+
+    def show_image_preview(self, image_url, title="Image Preview"):
+        """Show image preview in a popup"""
+        try:
+            # Download image
+            with urllib.request.urlopen(image_url) as url:
+                image_data = url.read()
+            
+            # Open with PIL
+            image = Image.open(io.BytesIO(image_data))
+            
+            # Resize if too large
+            max_size = (600, 600)
+            image.thumbnail(max_size, Image.Resampling.LANCZOS)
+            
+            # Create preview window
+            preview = tk.Toplevel(self.root)
+            preview.title(title)
+            preview.resizable(False, False)
+            preview.transient(self.root)
+            
+            # Convert to PhotoImage
+            photo = ImageTk.PhotoImage(image)
+            
+            label = tk.Label(preview, image=photo)
+            label.image = photo  # Keep reference
+            label.pack(padx=10, pady=10)
+            
+            tk.Label(
+                preview,
+                text=f"📸 {title}",
+                font=("Arial", 10, "bold")
+            ).pack(pady=5)
+            
+            tk.Button(
+                preview,
+                text="Close",
+                command=preview.destroy,
+                bg="#666",
+                fg="white",
+                relief=tk.FLAT,
+                cursor="hand2"
+            ).pack(pady=10, ipady=5, ipadx=20)
+            
+        except Exception as e:
+            self.logger.error(f"Error loading image: {e}")
+            messagebox.showerror("Error", f"Could not load image: {e}")
+
     def create_article(self):
         dialog = tk.Toplevel(self.root)
         dialog.title("Create Article")
-        dialog.geometry("500x650")
+        dialog.geometry("550x750")
         dialog.resizable(False, False)
         dialog.transient(self.root)
         dialog.grab_set()
@@ -315,15 +403,15 @@ class UserDashboard:
         ).pack(pady=(0, 5))
 
         tk.Label(dialog, text="Article Name:", font=("Arial", 10)).pack(anchor=tk.W, padx=20, pady=(5, 2))
-        article_name_entry = tk.Entry(dialog, font=("Arial", 10), width=45)
+        article_name_entry = tk.Entry(dialog, font=("Arial", 10), width=50)
         article_name_entry.pack(padx=20, ipady=5)
 
         tk.Label(dialog, text="Mould:", font=("Arial", 10)).pack(anchor=tk.W, padx=20, pady=(10, 2))
-        mould_entry = tk.Entry(dialog, font=("Arial", 10), width=45)
+        mould_entry = tk.Entry(dialog, font=("Arial", 10), width=50)
         mould_entry.pack(padx=20, ipady=5)
 
         tk.Label(dialog, text="Size:", font=("Arial", 10)).pack(anchor=tk.W, padx=20, pady=(10, 2))
-        size_entry = tk.Entry(dialog, font=("Arial", 10), width=45)
+        size_entry = tk.Entry(dialog, font=("Arial", 10), width=50)
         size_entry.pack(padx=20, ipady=5)
 
         tk.Label(dialog, text="Gender:", font=("Arial", 10)).pack(anchor=tk.W, padx=20, pady=(10, 2))
@@ -340,6 +428,20 @@ class UserDashboard:
         image_label = tk.Label(image_frame, text="No image selected", font=("Arial", 9), fg="gray")
         image_label.pack(side=tk.LEFT, padx=5)
 
+        # Image preview area
+        preview_frame = tk.Frame(dialog, bg="#f0f0f0", height=120)
+        preview_frame.pack(fill=tk.X, padx=20, pady=10)
+        preview_frame.pack_propagate(False)
+        
+        preview_label = tk.Label(
+            preview_frame,
+            text="Image preview will appear here",
+            bg="#f0f0f0",
+            fg="#999",
+            font=("Arial", 9, "italic")
+        )
+        preview_label.pack(expand=True)
+
         def select_image():
             file_path = filedialog.askopenfilename(
                 title="Select Article Image",
@@ -349,6 +451,15 @@ class UserDashboard:
                 self.selected_image_path = file_path
                 filename = file_path.split('/')[-1].split('\\')[-1]
                 image_label.config(text=filename, fg="green")
+                
+                # Show preview
+                try:
+                    img = Image.open(file_path)
+                    img.thumbnail((100, 100), Image.Resampling.LANCZOS)
+                    self.preview_photo = ImageTk.PhotoImage(img)
+                    preview_label.config(image=self.preview_photo, text="")
+                except Exception as e:
+                    self.logger.error(f"Preview error: {e}")
 
         tk.Button(
             image_frame,
@@ -423,7 +534,7 @@ class UserDashboard:
             relief=tk.FLAT,
             cursor="hand2",
             command=save_article
-        ).pack(pady=20, ipady=8, ipadx=30)
+        ).pack(pady=15, ipady=8, ipadx=30)
 
         dialog.wait_window()
 

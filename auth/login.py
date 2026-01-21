@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Login Window Module - FIXED SIZING"""
+"""Login Window Module - WITH LOGO AND REMEMBER ME"""
 
 import tkinter as tk
 from tkinter import messagebox
 import sys
 import os
+import json
+from PIL import Image, ImageTk
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -13,7 +15,7 @@ from utils.security import verify_password
 
 
 class LoginWindow:
-    """Login window with proper sizing"""
+    """Login window with logo, remember me, and saved credentials"""
 
     def __init__(self, root, db, firebase, network_checker, on_success, logger):
         self.root = root
@@ -22,6 +24,7 @@ class LoginWindow:
         self.network_checker = network_checker
         self.on_success = on_success
         self.logger = logger
+        self.credentials_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "credentials.json")
 
         # Hide main window
         self.root.withdraw()
@@ -30,9 +33,9 @@ class LoginWindow:
         self.login_window = tk.Toplevel(self.root)
         self.login_window.title(f"{APP_NAME} - Login")
         
-        # FIXED: Proper window size
+        # FIXED: Proper window size with space for logo
         window_width = 450
-        window_height = 500
+        window_height = 600
         
         # Center on screen
         screen_width = self.login_window.winfo_screenwidth()
@@ -56,34 +59,65 @@ class LoginWindow:
         self.login_window.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self.setup_ui()
+        self.load_saved_credentials()
         self.logger.info("Login window opened")
 
     def setup_ui(self):
-        """Create login UI"""
-        # Header
-        header_frame = tk.Frame(self.login_window, bg=PRIMARY_COLOR, height=120)
+        """Create login UI with logo and remember me"""
+        # Header with logo
+        header_frame = tk.Frame(self.login_window, bg=PRIMARY_COLOR, height=180)
         header_frame.pack(fill=tk.X)
         header_frame.pack_propagate(False)
+
+        # Try to load logo
+        logo_loaded = False
+        logo_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "logo.png")
+        
+        if os.path.exists(logo_path):
+            try:
+                logo_image = Image.open(logo_path)
+                logo_image = logo_image.resize((80, 80), Image.Resampling.LANCZOS)
+                self.logo_photo = ImageTk.PhotoImage(logo_image)
+                
+                logo_label = tk.Label(
+                    header_frame,
+                    image=self.logo_photo,
+                    bg=PRIMARY_COLOR
+                )
+                logo_label.pack(pady=(20, 10))
+                logo_loaded = True
+            except Exception as e:
+                self.logger.debug(f"Could not load logo: {e}")
+        
+        # If logo not loaded, show app initial
+        if not logo_loaded:
+            tk.Label(
+                header_frame,
+                text=APP_NAME[0],
+                font=("Arial", 48, "bold"),
+                bg=PRIMARY_COLOR,
+                fg="white"
+            ).pack(pady=(20, 10))
 
         tk.Label(
             header_frame,
             text=APP_NAME,
-            font=("Arial", 20, "bold"),
+            font=("Arial", 18, "bold"),
             bg=PRIMARY_COLOR,
             fg="white"
-        ).pack(pady=(30, 5))
+        ).pack(pady=(0, 5))
 
         tk.Label(
             header_frame,
             text="Login to your account",
-            font=("Arial", 11),
+            font=("Arial", 10),
             bg=PRIMARY_COLOR,
             fg="white"
         ).pack()
 
         # Form container
         form_frame = tk.Frame(self.login_window, bg="white")
-        form_frame.pack(fill=tk.BOTH, expand=True, padx=40, pady=40)
+        form_frame.pack(fill=tk.BOTH, expand=True, padx=40, pady=30)
 
         # Username
         tk.Label(
@@ -100,7 +134,7 @@ class LoginWindow:
             relief=tk.SOLID,
             bd=1
         )
-        self.username_entry.pack(fill=tk.X, ipady=8, pady=(0, 20))
+        self.username_entry.pack(fill=tk.X, ipady=8, pady=(0, 15))
         self.username_entry.focus()
 
         # Password
@@ -119,7 +153,21 @@ class LoginWindow:
             relief=tk.SOLID,
             bd=1
         )
-        self.password_entry.pack(fill=tk.X, ipady=8, pady=(0, 30))
+        self.password_entry.pack(fill=tk.X, ipady=8, pady=(0, 15))
+
+        # Remember Me checkbox
+        self.remember_var = tk.BooleanVar(value=False)
+        remember_frame = tk.Frame(form_frame, bg="white")
+        remember_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        tk.Checkbutton(
+            remember_frame,
+            text="Remember me",
+            font=("Arial", 9),
+            bg="white",
+            variable=self.remember_var,
+            cursor="hand2"
+        ).pack(side=tk.LEFT)
 
         # Bind Enter key
         self.username_entry.bind("<Return>", lambda e: self.password_entry.focus())
@@ -152,10 +200,37 @@ class LoginWindow:
             fg="#666"
         ).pack(pady=20)
 
+    def load_saved_credentials(self):
+        """Load saved credentials if remember me was checked"""
+        try:
+            if os.path.exists(self.credentials_file):
+                with open(self.credentials_file, 'r') as f:
+                    data = json.load(f)
+                    if data.get('remember'):
+                        self.username_entry.insert(0, data.get('username', ''))
+                        self.password_entry.insert(0, data.get('password', ''))
+                        self.remember_var.set(True)
+        except Exception as e:
+            self.logger.debug(f"Could not load credentials: {e}")
+
+    def save_credentials(self, username, password, remember):
+        """Save credentials if remember me is checked"""
+        try:
+            data = {
+                'remember': remember,
+                'username': username if remember else '',
+                'password': password if remember else ''
+            }
+            with open(self.credentials_file, 'w') as f:
+                json.dump(data, f)
+        except Exception as e:
+            self.logger.debug(f"Could not save credentials: {e}")
+
     def login(self):
         """Handle login"""
         username = self.username_entry.get().strip()
         password = self.password_entry.get()
+        remember = self.remember_var.get()
 
         if not username or not password:
             messagebox.showerror("Login Error", "Please enter username and password")
@@ -173,6 +248,9 @@ class LoginWindow:
                 messagebox.showerror("Login Error", "Invalid username or password")
                 self.logger.warning(f"Failed login attempt: {username}")
                 return
+
+            # Save credentials if remember me is checked
+            self.save_credentials(username, password, remember)
 
             # Update last login
             self.db.update_user_last_login(user['id'])
