@@ -1,5 +1,4 @@
-"""
-Local SQLite Database Operations
+"""Local SQLite Database Operations
 Author: Manoj Konar (monoj@nexuzy.in)
 """
 
@@ -32,7 +31,6 @@ class LocalDatabase:
     def init_database(self):
         """Initialize database and create tables if they don't exist"""
         try:
-            # If connection already exists, don't recreate tables again
             if self.connection is None:
                 self.connection = sqlite3.connect(str(self.db_path))
                 self.connection.row_factory = sqlite3.Row
@@ -207,6 +205,54 @@ class LocalDatabase:
             logger.error(f"Add article failed: {e}")
             return False
 
+    def update_article(self, article_id: str, article_name: str, mould: str, size: str, gender: str) -> bool:
+        """Update an existing article and mark it pending sync."""
+        try:
+            self.cursor.execute(
+                f"""UPDATE {ARTICLES_TABLE}
+                    SET article_name = ?, mould = ?, size = ?, gender = ?, updated_at = ?, sync_status = ?
+                    WHERE id = ?
+                """,
+                (article_name, mould, size, gender, datetime.now(), SYNC_PENDING, article_id)
+            )
+            self.connection.commit()
+            return self.cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Update article failed: {e}")
+            return False
+
+    def delete_article(self, article_id: str) -> bool:
+        """Delete article locally."""
+        try:
+            self.cursor.execute(f"DELETE FROM {ARTICLES_TABLE} WHERE id = ?", (article_id,))
+            self.connection.commit()
+            return self.cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Delete article failed: {e}")
+            return False
+
+    def get_article_by_id(self, article_id: str) -> Optional[Article]:
+        """Get one article by id (Article object)."""
+        try:
+            self.cursor.execute(f"SELECT * FROM {ARTICLES_TABLE} WHERE id = ?", (article_id,))
+            row = self.cursor.fetchone()
+            if not row:
+                return None
+            return Article(
+                id=row['id'],
+                article_name=row['article_name'],
+                mould=row['mould'],
+                size=row['size'],
+                gender=row['gender'],
+                created_by=row['created_by'],
+                created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else datetime.now(),
+                updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else None,
+                sync_status=row['sync_status']
+            )
+        except Exception as e:
+            logger.error(f"Get article by id failed: {e}")
+            return None
+
     def get_all_articles(self) -> List[Article]:
         """Get all articles (returns Article objects)"""
         try:
@@ -282,3 +328,35 @@ class LocalDatabase:
         except Exception as e:
             logger.error(f"Get pending articles count failed: {e}")
             return 0
+
+    # -----------------
+    # Methods required by UserDashboard (dict based)
+    # -----------------
+
+    def get_articles_by_user(self, user_id: str) -> List[dict]:
+        """Return list of article dicts for a user."""
+        try:
+            self.cursor.execute(
+                f"SELECT * FROM {ARTICLES_TABLE} WHERE created_by = ? ORDER BY created_at DESC",
+                (user_id,)
+            )
+            return [dict(r) for r in self.cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"get_articles_by_user failed: {e}")
+            return []
+
+    def create_article(self, article_id: str, article_name: str, mould: str, size: str, gender: str, created_by: str) -> bool:
+        """Used by UserDashboard create dialog."""
+        try:
+            self.cursor.execute(
+                f"""INSERT INTO {ARTICLES_TABLE}
+                    (id, article_name, mould, size, gender, created_by, created_at, updated_at, sync_status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (article_id, article_name, mould, size, gender, created_by, datetime.now(), datetime.now(), SYNC_PENDING)
+            )
+            self.connection.commit()
+            return True
+        except Exception as e:
+            logger.error(f"create_article failed: {e}")
+            return False
