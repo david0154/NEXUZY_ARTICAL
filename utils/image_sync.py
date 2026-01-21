@@ -3,9 +3,12 @@
 
 Automatically downloads images from FTP paths when app starts on fresh system.
 Uses FTP authentication to download images (not public URLs).
+
+PyInstaller-safe: Uses writable cache directory from config.
 """
 
 import os
+import sys
 import logging
 import hashlib
 from pathlib import Path
@@ -22,11 +25,16 @@ class ImageSyncManager:
         Initialize image sync manager.
         
         Args:
-            cache_dir: Directory to store cached images (default: ./image_cache)
+            cache_dir: Directory to store cached images (default: from config)
         """
         if cache_dir is None:
-            # Create cache directory in app root
-            cache_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'image_cache')
+            # PyInstaller-safe: use writable directory from config
+            try:
+                import config
+                cache_dir = str(config.IMAGE_CACHE_DIR)
+            except Exception:
+                # Fallback to current directory
+                cache_dir = os.path.join(os.getcwd(), 'image_cache')
         
         self.cache_dir = cache_dir
         self._ensure_cache_dir()
