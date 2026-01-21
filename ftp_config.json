@@ -1,8 +1,8 @@
 {
-  "ftp_host": "ftp.yourdomain.com",
-  "ftp_user": "your_ftp_username",
-  "ftp_pass": "your_ftp_password",
-  "ftp_remote_dir": "/public_html/articles/images",
-  "ftp_base_url": "https://yourdomain.com/articles/images",
-  "_comment": "Replace the values above with your actual FTP credentials. Keep this file secure and add to .gitignore"
+  "host": "ftp.hypechats.com",
+  "port": 21,
+  "username": "nexuzy@hypechats.com",
+  "password": "Monoj7845@77",
+  "remote_dir": "/hypechats.com/nexuzy",
+  "public_url_base": "https://hypechats.com/nexuzy"
 }
