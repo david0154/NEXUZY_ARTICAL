@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Admin Dashboard Module - FIXED WINDOW SIZING
+"""Admin Dashboard Module - WITH WORKING EXPORT
 
 Full control panel for administrators
 
 Features:
-- Fixed window sizing (content fills entire space)
-- Fixed dialog closing bug
-- FTP image upload with progress
-- Image URL storage in Firebase
+- Fixed window sizing
+- PDF/Excel export for articles and users
+- FTP image upload
+- Firebase sync
 """
 
 import tkinter as tk
@@ -17,6 +17,8 @@ import sys
 import os
 import random
 import string
+import subprocess
+import platform
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -57,39 +59,204 @@ class AdminDashboard:
             except:
                 return article_id
 
+    def open_file(self, filepath):
+        """Open file with default system application"""
+        try:
+            if platform.system() == 'Windows':
+                os.startfile(filepath)
+            elif platform.system() == 'Darwin':  # macOS
+                subprocess.run(['open', filepath])
+            else:  # Linux
+                subprocess.run(['xdg-open', filepath])
+        except Exception as e:
+            self.logger.error(f"Failed to open file: {e}")
+
+    def export_articles_pdf(self):
+        """Export articles to PDF"""
+        try:
+            articles = self.db.get_all_articles()
+            if not articles:
+                messagebox.showwarning("Export", "No articles to export")
+                return
+
+            # Convert to dict format
+            articles_data = []
+            for article in articles:
+                articles_data.append({
+                    'id': article.id,
+                    'article_name': article.article_name,
+                    'mould': article.mould,
+                    'size': article.size,
+                    'gender': article.gender,
+                    'created_by': article.created_by,
+                    'created_at': article.created_at.strftime('%Y-%m-%d'),
+                    'updated_at': article.updated_at.strftime('%Y-%m-%d'),
+                    'sync_status': article.sync_status
+                })
+
+            # Export to PDF
+            output_path = self.exporter.export_articles_to_pdf(articles_data)
+            
+            result = messagebox.askyesno(
+                "Export Successful",
+                f"Articles exported to PDF!\n\nFile: {os.path.basename(output_path)}\n\nOpen file now?"
+            )
+            
+            if result:
+                self.open_file(output_path)
+
+        except ImportError:
+            messagebox.showerror(
+                "Missing Dependency",
+                "PDF export requires reportlab.\n\nInstall: pip install reportlab"
+            )
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed:\n{str(e)}")
+            self.logger.error(f"PDF export failed: {e}")
+
+    def export_articles_excel(self):
+        """Export articles to Excel"""
+        try:
+            articles = self.db.get_all_articles()
+            if not articles:
+                messagebox.showwarning("Export", "No articles to export")
+                return
+
+            articles_data = []
+            for article in articles:
+                articles_data.append({
+                    'id': article.id,
+                    'article_name': article.article_name,
+                    'mould': article.mould,
+                    'size': article.size,
+                    'gender': article.gender,
+                    'created_by': article.created_by,
+                    'created_at': article.created_at.strftime('%Y-%m-%d'),
+                    'updated_at': article.updated_at.strftime('%Y-%m-%d'),
+                    'sync_status': article.sync_status
+                })
+
+            output_path = self.exporter.export_articles_to_excel(articles_data)
+            
+            result = messagebox.askyesno(
+                "Export Successful",
+                f"Articles exported to Excel!\n\nFile: {os.path.basename(output_path)}\n\nOpen file now?"
+            )
+            
+            if result:
+                self.open_file(output_path)
+
+        except ImportError:
+            messagebox.showerror(
+                "Missing Dependency",
+                "Excel export requires openpyxl.\n\nInstall: pip install openpyxl"
+            )
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed:\n{str(e)}")
+            self.logger.error(f"Excel export failed: {e}")
+
+    def export_users_pdf(self):
+        """Export users to PDF"""
+        try:
+            users_list = self.db.get_all_users()
+            if not users_list:
+                messagebox.showwarning("Export", "No users to export")
+                return
+
+            users_data = []
+            for user in users_list:
+                users_data.append({
+                    'id': user['id'],
+                    'username': user['username'],
+                    'role': user['role'],
+                    'created_at': user.get('created_at', 'N/A'),
+                    'last_login': user.get('last_login', 'Never')
+                })
+
+            output_path = self.exporter.export_users_to_pdf(users_data)
+            
+            result = messagebox.askyesno(
+                "Export Successful",
+                f"Users exported to PDF!\n\nFile: {os.path.basename(output_path)}\n\nOpen file now?"
+            )
+            
+            if result:
+                self.open_file(output_path)
+
+        except ImportError:
+            messagebox.showerror(
+                "Missing Dependency",
+                "PDF export requires reportlab.\n\nInstall: pip install reportlab"
+            )
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed:\n{str(e)}")
+            self.logger.error(f"PDF export failed: {e}")
+
+    def export_users_excel(self):
+        """Export users to Excel"""
+        try:
+            users_list = self.db.get_all_users()
+            if not users_list:
+                messagebox.showwarning("Export", "No users to export")
+                return
+
+            users_data = []
+            for user in users_list:
+                users_data.append({
+                    'id': user['id'],
+                    'username': user['username'],
+                    'role': user['role'],
+                    'created_at': user.get('created_at', 'N/A'),
+                    'last_login': user.get('last_login', 'Never')
+                })
+
+            output_path = self.exporter.export_users_to_excel(users_data)
+            
+            result = messagebox.askyesno(
+                "Export Successful",
+                f"Users exported to Excel!\n\nFile: {os.path.basename(output_path)}\n\nOpen file now?"
+            )
+            
+            if result:
+                self.open_file(output_path)
+
+        except ImportError:
+            messagebox.showerror(
+                "Missing Dependency",
+                "Excel export requires openpyxl.\n\nInstall: pip install openpyxl"
+            )
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed:\n{str(e)}")
+            self.logger.error(f"Excel export failed: {e}")
+
     def setup_ui(self):
-        """Create admin dashboard UI - FIXED SIZING"""
+        """Create admin dashboard UI"""
         for widget in self.root.winfo_children():
             widget.destroy()
 
-        # Top bar with username
         top_frame = tk.Frame(self.root, bg=PRIMARY_COLOR, height=50)
         top_frame.pack(fill=tk.X)
         top_frame.pack_propagate(False)
 
-        title_label = tk.Label(
+        tk.Label(
             top_frame,
             text=f"{APP_NAME} - Admin Dashboard",
             font=("Arial", 14, "bold"),
             bg=PRIMARY_COLOR,
             fg="white"
-        )
-        title_label.pack(side=tk.LEFT, padx=20, pady=10)
+        ).pack(side=tk.LEFT, padx=20, pady=10)
 
-        user_info = tk.Label(
+        tk.Label(
             top_frame,
             text=f"Welcome, {self.user['username']} ({self.user['role'].upper()}) 👤",
             font=("Arial", 11, "bold"),
             bg=PRIMARY_COLOR,
             fg="white"
-        )
-        user_info.pack(side=tk.RIGHT, padx=20, pady=10)
+        ).pack(side=tk.RIGHT, padx=20, pady=10)
 
-        # Main content frame
         main_frame = tk.Frame(self.root, bg="white")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Sidebar - FIXED WIDTH
         sidebar = tk.Frame(main_frame, bg="#f0f0f0", width=200)
         sidebar.pack(side=tk.LEFT, fill=tk.Y)
         sidebar.pack_propagate(False)
@@ -122,30 +289,25 @@ class AdminDashboard:
             btn.bind("<Enter>", lambda e, b=btn: b.config(bg="#e0e0e0"))
             btn.bind("<Leave>", lambda e, b=btn: b.config(bg="#f0f0f0"))
 
-        # CRITICAL FIX: Content frame directly in main_frame (no canvas wrapper)
-        # This makes content use 100% of available space
         self.content_frame = tk.Frame(main_frame, bg="white")
         self.content_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=20, pady=20)
 
         self.show_dashboard()
 
     def clear_content(self):
-        """Clear content frame"""
         for widget in self.content_frame.winfo_children():
             widget.destroy()
 
     def show_dashboard(self):
-        """Show main dashboard"""
         self.clear_content()
 
-        title = tk.Label(
+        tk.Label(
             self.content_frame,
             text="Dashboard Overview",
             font=("Arial", 16, "bold"),
             bg="white",
             fg="#333"
-        )
-        title.pack(anchor=tk.W, pady=(0, 20))
+        ).pack(anchor=tk.W, pady=(0, 20))
 
         try:
             total_users = len(self.db.get_all_users())
@@ -211,7 +373,6 @@ class AdminDashboard:
         ).pack(side=tk.LEFT, padx=5, ipady=10, ipadx=20)
 
     def _get_selected_article_id(self):
-        """Get ID of selected article from tree"""
         if not hasattr(self, "articles_tree"):
             return None
         sel = self.articles_tree.selection()
@@ -224,59 +385,78 @@ class AdminDashboard:
         return self._article_id_map.get(short_id)
 
     def show_articles(self):
-        """Show articles management - FULL WIDTH"""
+        """Show articles with export buttons"""
         self.clear_content()
 
-        # Header
         header_frame = tk.Frame(self.content_frame, bg="white")
         header_frame.pack(fill=tk.X, pady=(0, 15))
 
-        title = tk.Label(
+        tk.Label(
             header_frame,
             text="Article Management",
             font=("Arial", 16, "bold"),
             bg="white"
-        )
-        title.pack(side=tk.LEFT)
+        ).pack(side=tk.LEFT)
 
-        # Action buttons
         actions = tk.Frame(header_frame, bg="white")
         actions.pack(side=tk.RIGHT)
 
+        # EXPORT BUTTONS
         tk.Button(
             actions,
-            text="+ Add New Article",
+            text="📄 Export PDF",
+            font=("Arial", 9),
+            bg="#d32f2f",
+            fg="white",
+            relief=tk.FLAT,
+            cursor="hand2",
+            command=self.export_articles_pdf
+        ).pack(side=tk.RIGHT, padx=3, ipady=5, ipadx=10)
+
+        tk.Button(
+            actions,
+            text="📊 Export Excel",
+            font=("Arial", 9),
+            bg="#388e3c",
+            fg="white",
+            relief=tk.FLAT,
+            cursor="hand2",
+            command=self.export_articles_excel
+        ).pack(side=tk.RIGHT, padx=3, ipady=5, ipadx=10)
+
+        tk.Button(
+            actions,
+            text="+ Add Article",
             font=("Arial", 10),
             bg=PRIMARY_COLOR,
             fg="white",
             relief=tk.FLAT,
             cursor="hand2",
             command=self.create_article
-        ).pack(side=tk.RIGHT, padx=5, ipady=6, ipadx=12)
+        ).pack(side=tk.RIGHT, padx=3, ipady=6, ipadx=12)
 
         tk.Button(
             actions,
-            text="✏️ Edit Selected",
+            text="✏️ Edit",
             font=("Arial", 9),
             bg="#1f6feb",
             fg="white",
             relief=tk.FLAT,
             cursor="hand2",
             command=self.edit_selected_article
-        ).pack(side=tk.RIGHT, padx=5, ipady=5, ipadx=10)
+        ).pack(side=tk.RIGHT, padx=3, ipady=5, ipadx=10)
 
         tk.Button(
             actions,
-            text="🗑 Delete Selected",
+            text="🗑 Delete",
             font=("Arial", 9),
             bg="#d1242f",
             fg="white",
             relief=tk.FLAT,
             cursor="hand2",
             command=self.delete_selected_article
-        ).pack(side=tk.RIGHT, padx=5, ipady=5, ipadx=10)
+        ).pack(side=tk.RIGHT, padx=3, ipady=5, ipadx=10)
 
-        # Articles list - FULL WIDTH
         try:
             articles = self.db.get_all_articles()
             self._article_id_map = {}
@@ -284,13 +464,11 @@ class AdminDashboard:
             if articles:
                 columns = ("ID", "Name", "Mould", "Size", "Gender", "Created By", "Date", "Sync")
                 
-                # Create frame for treeview and scrollbar
                 tree_frame = tk.Frame(self.content_frame, bg="white")
                 tree_frame.pack(fill=tk.BOTH, expand=True, pady=10)
                 
                 self.articles_tree = ttk.Treeview(tree_frame, columns=columns, height=18, show="headings")
 
-                # Column widths
                 self.articles_tree.column("ID", width=100)
                 self.articles_tree.column("Name", width=200)
                 self.articles_tree.column("Mould", width=120)
@@ -318,7 +496,6 @@ class AdminDashboard:
                         sync_status
                     ))
 
-                # Scrollbar
                 scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.articles_tree.yview)
                 self.articles_tree.configure(yscroll=scrollbar.set)
                 
@@ -337,14 +514,13 @@ class AdminDashboard:
             self.logger.error(f"Error loading articles: {e}")
             tk.Label(
                 self.content_frame, 
-                text=f"Error loading articles: {e}", 
+                text=f"Error: {e}", 
                 font=("Arial", 11), 
                 bg="white", 
                 fg="red"
             ).pack(pady=30)
 
     def edit_selected_article(self):
-        """Edit selected article"""
         article_id = self._get_selected_article_id()
         if not article_id:
             messagebox.showwarning("Edit", "Please select an article first")
@@ -352,7 +528,6 @@ class AdminDashboard:
         messagebox.showinfo("Edit", f"Edit functionality for {article_id}")
 
     def delete_selected_article(self):
-        """Delete selected article"""
         article_id = self._get_selected_article_id()
         if not article_id:
             messagebox.showwarning("Delete", "Please select an article first")
@@ -366,7 +541,6 @@ class AdminDashboard:
                 messagebox.showerror("Error", "Failed to delete article")
 
     def create_article(self):
-        """Create new article dialog"""
         from db.models import Article
 
         dialog = tk.Toplevel(self.root)
@@ -507,8 +681,43 @@ class AdminDashboard:
         messagebox.showinfo("Add User", "User creation dialog")
 
     def show_users(self):
+        """Show users with export buttons"""
         self.clear_content()
-        tk.Label(self.content_frame, text="Users Management", font=("Arial", 16, "bold"), bg="white").pack(pady=20)
+        
+        header_frame = tk.Frame(self.content_frame, bg="white")
+        header_frame.pack(fill=tk.X, pady=(0, 15))
+        
+        tk.Label(
+            header_frame,
+            text="Users Management",
+            font=("Arial", 16, "bold"),
+            bg="white"
+        ).pack(side=tk.LEFT)
+        
+        actions = tk.Frame(header_frame, bg="white")
+        actions.pack(side=tk.RIGHT)
+        
+        tk.Button(
+            actions,
+            text="📄 Export PDF",
+            font=("Arial", 9),
+            bg="#d32f2f",
+            fg="white",
+            relief=tk.FLAT,
+            cursor="hand2",
+            command=self.export_users_pdf
+        ).pack(side=tk.RIGHT, padx=3, ipady=5, ipadx=10)
+        
+        tk.Button(
+            actions,
+            text="📊 Export Excel",
+            font=("Arial", 9),
+            bg="#388e3c",
+            fg="white",
+            relief=tk.FLAT,
+            cursor="hand2",
+            command=self.export_users_excel
+        ).pack(side=tk.RIGHT, padx=3, ipady=5, ipadx=10)
 
     def show_sync_status(self):
         self.clear_content()
