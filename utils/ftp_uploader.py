@@ -63,6 +63,7 @@ class FTPUploader:
                     self.base_url = (config.get('public_url_base') or config.get('ftp_base_url', 'https://yourdomain.com/articles/images')).rstrip('/')
                     
                     logger.info(f"FTP config loaded: {self.host}:{self.port} -> {self.base_url}")
+                    logger.info(f"Remote directory: {self.remote_dir}")
                     return
         except Exception as e:
             logger.error(f"Error loading ftp_config.json: {e}")
@@ -80,7 +81,6 @@ class FTPUploader:
         try:
             if not all([self.host, self.username, self.password]):
                 logger.warning("FTP credentials not configured. Please update ftp_config.json")
-                logger.warning(f"Current config: host={self.host}, username={self.username}, password={'*' * len(self.password) if self.password else 'None'}")
                 return False
 
             logger.info(f"Connecting to FTP: {self.username}@{self.host}:{self.port}")
@@ -96,33 +96,37 @@ class FTPUploader:
             
             self.ftp.set_pasv(True)  # Use passive mode
             
-            logger.info(f"FTP login successful! Current directory: {self.ftp.pwd()}")
+            current_dir = self.ftp.pwd()
+            logger.info(f"FTP login successful! Current directory: {current_dir}")
             
-            # Navigate to or create remote directory
+            # Navigate to remote directory
             try:
+                logger.info(f"Attempting to change to: {self.remote_dir}")
                 self.ftp.cwd(self.remote_dir)
-                logger.info(f"Changed to directory: {self.remote_dir}")
+                logger.info(f"Successfully changed to directory: {self.remote_dir}")
+                logger.info(f"Current directory: {self.ftp.pwd()}")
             except ftplib.error_perm as e:
-                logger.warning(f"Directory {self.remote_dir} not accessible: {e}")
+                logger.error(f"Directory {self.remote_dir} not accessible: {e}")
                 
-                # Try to create directory path
-                dirs = self.remote_dir.strip('/').split('/')
-                current = ''
+                # List current directory contents for debugging
+                try:
+                    logger.info("Available directories:")
+                    dirs = self.ftp.nlst()
+                    for d in dirs[:10]:  # Show first 10
+                        logger.info(f"  - {d}")
+                except:
+                    pass
                 
-                for dir_name in dirs:
-                    current = f"{current}/{dir_name}"
-                    try:
-                        self.ftp.cwd(current)
-                        logger.debug(f"Changed to: {current}")
-                    except:
-                        try:
-                            self.ftp.mkd(current)
-                            self.ftp.cwd(current)
-                            logger.info(f"Created directory: {current}")
-                        except Exception as mkdir_error:
-                            logger.error(f"Cannot create directory {current}: {mkdir_error}")
-                            # Try to continue anyway
-                            pass
+                # Try to create the directory
+                try:
+                    logger.info(f"Attempting to create directory: {self.remote_dir}")
+                    self.ftp.mkd(self.remote_dir)
+                    self.ftp.cwd(self.remote_dir)
+                    logger.info(f"Created and changed to directory: {self.remote_dir}")
+                except Exception as mkdir_error:
+                    logger.error(f"Cannot create or access directory: {mkdir_error}")
+                    logger.error(f"Please manually create the directory '{self.remote_dir}' on your FTP server")
+                    return False
             
             self.connected = True
             logger.info(f"FTP connected successfully to {self.host}")
@@ -196,13 +200,13 @@ class FTPUploader:
                 return None
 
             # Upload file in binary mode
-            logger.info(f"Uploading {os.path.basename(local_path)} to {self.remote_dir}/{remote_filename}")
+            logger.info(f"Uploading {os.path.basename(local_path)} as {remote_filename}")
             with open(local_path, 'rb') as file:
                 self.ftp.storbinary(f'STOR {remote_filename}', file)
 
             # Construct public URL
             public_url = f"{self.base_url}/{remote_filename}"
-            logger.info(f"Image uploaded successfully: {public_url}")
+            logger.info(f"✅ Image uploaded successfully: {public_url}")
             return public_url
 
         except ftplib.error_perm as e:
@@ -211,9 +215,6 @@ class FTPUploader:
         except Exception as e:
             logger.error(f"FTP upload failed: {e}")
             return None
-        finally:
-            # Keep connection alive for multiple uploads
-            pass
 
     def delete_image(self, filename: str) -> bool:
         """Delete image from FTP server"""
@@ -235,10 +236,10 @@ class FTPUploader:
         """Test FTP connection"""
         try:
             if self.connect():
-                logger.info("FTP connection test: SUCCESS")
+                logger.info("✅ FTP connection test: SUCCESS")
                 self.disconnect()
                 return True
-            logger.error("FTP connection test: FAILED")
+            logger.error("❌ FTP connection test: FAILED")
             return False
         except Exception as e:
             logger.error(f"FTP test failed: {e}")
