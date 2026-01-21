@@ -1,9 +1,14 @@
 """
 Global Configuration for NEXUZY ARTICAL
 Author: Manoj Konar (monoj@nexuzy.in)
+
+Build-safe paths:
+- When packaged with PyInstaller (--onefile/--windowed), use a writable app-data directory
+  so DB/logs/config work reliably after install.
 """
 
 import os
+import sys
 from pathlib import Path
 
 # Application Info
@@ -13,21 +18,59 @@ DEVELOPER_NAME = "Manoj Konar"
 DEVELOPER_EMAIL = "monoj@nexuzy.in"
 COMPANY = "Nexuzy"
 
+
+def _is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def _get_appdata_base_dir() -> Path:
+    """Return writable base dir (Option B).
+
+    Windows: %APPDATA%\NEXUZY_ARTICAL
+    Other OS: ~/.nexuzy_artical
+    """
+    app_dir_name = "NEXUZY_ARTICAL"
+
+    # Windows
+    appdata = os.getenv("APPDATA")
+    if appdata:
+        return Path(appdata) / app_dir_name
+
+    # Fallback (mac/linux)
+    return Path.home() / ".nexuzy_artical"
+
+
+def _get_base_dir() -> Path:
+    """Base directory for runtime files.
+
+    - Source run (VS Code): project folder (same as this file)
+    - Frozen build: writable AppData folder (Option B)
+    """
+    if _is_frozen():
+        return _get_appdata_base_dir()
+    return Path(__file__).resolve().parent
+
+
 # Paths
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = _get_base_dir()
+PROJECT_DIR = Path(__file__).resolve().parent  # for bundled assets/templates in source tree
+
 DATABASE_DIR = BASE_DIR / "data"
 LOGS_DIR = BASE_DIR / "logs"
-ASSETS_DIR = BASE_DIR / "assets"
+ASSETS_DIR = BASE_DIR / "assets"  # for source-run; build should bundle assets separately
 
-# Create directories if not exist
-DATABASE_DIR.mkdir(exist_ok=True)
-LOGS_DIR.mkdir(exist_ok=True)
+# Ensure runtime directories exist
+DATABASE_DIR.mkdir(parents=True, exist_ok=True)
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Database paths
 LOCAL_DB_PATH = DATABASE_DIR / "nexuzy_artical.db"
 
-# Firebase Configuration
+# Firebase Configuration (service account json path)
 FIREBASE_CONFIG_PATH = BASE_DIR / "firebase_config.json"
+
+# FTP Configuration
+FTP_CONFIG_PATH = BASE_DIR / "ftp_config.json"
 
 # UI Configuration
 WINDOW_WIDTH = 900
