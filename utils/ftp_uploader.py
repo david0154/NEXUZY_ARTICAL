@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class FTPUploader:
     """Handles FTP file uploads for article images"""
 
-    def __init__(self, host: str = None, username: str = None, password: str = None, 
+    def __init__(self, host: str = None, port: int = 21, username: str = None, password: str = None, 
                  remote_dir: str = '/public_html/articles/images', 
                  base_url: str = 'https://yourdomain.com/articles/images'):
         """
@@ -27,6 +27,7 @@ class FTPUploader:
         
         Args:
             host: FTP server hostname
+            port: FTP server port (default 21)
             username: FTP username
             password: FTP password
             remote_dir: Remote directory path on FTP server
@@ -37,6 +38,7 @@ class FTPUploader:
         
         # Override with provided params or env vars
         self.host = host or self.host or os.getenv('FTP_HOST')
+        self.port = port if port != 21 else self.port
         self.username = username or self.username or os.getenv('FTP_USER')
         self.password = password or self.password or os.getenv('FTP_PASS')
         self.remote_dir = remote_dir if remote_dir != '/public_html/articles/images' else self.remote_dir
@@ -45,24 +47,29 @@ class FTPUploader:
         self.ftp = None
 
     def _load_config(self):
-        """Load FTP configuration from ftp_config.json"""
+        """Load FTP configuration from ftp_config.json - supports multiple key formats"""
         try:
             config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'ftp_config.json')
             if os.path.exists(config_path):
                 with open(config_path, 'r') as f:
                     config = json.load(f)
-                    self.host = config.get('ftp_host')
-                    self.username = config.get('ftp_user')
-                    self.password = config.get('ftp_pass')
-                    self.remote_dir = config.get('ftp_remote_dir', '/public_html/articles/images')
-                    self.base_url = config.get('ftp_base_url', 'https://yourdomain.com/articles/images')
-                    logger.info("FTP config loaded from ftp_config.json")
+                    
+                    # Support both 'host' and 'ftp_host' formats
+                    self.host = config.get('host') or config.get('ftp_host')
+                    self.port = config.get('port', 21)
+                    self.username = config.get('username') or config.get('ftp_user')
+                    self.password = config.get('password') or config.get('ftp_pass')
+                    self.remote_dir = config.get('remote_dir') or config.get('ftp_remote_dir', '/public_html/articles/images')
+                    self.base_url = (config.get('public_url_base') or config.get('ftp_base_url', 'https://yourdomain.com/articles/images')).rstrip('/')
+                    
+                    logger.info(f"FTP config loaded: {self.host}:{self.port} -> {self.base_url}")
                     return
         except Exception as e:
-            logger.debug(f"Could not load ftp_config.json: {e}")
+            logger.error(f"Error loading ftp_config.json: {e}")
         
         # Default values if config file doesn't exist
         self.host = None
+        self.port = 21
         self.username = None
         self.password = None
         self.remote_dir = '/public_html/articles/images'
@@ -73,36 +80,66 @@ class FTPUploader:
         try:
             if not all([self.host, self.username, self.password]):
                 logger.warning("FTP credentials not configured. Please update ftp_config.json")
+                logger.warning(f"Current config: host={self.host}, username={self.username}, password={'*' * len(self.password) if self.password else 'None'}")
                 return False
 
-            self.ftp = ftplib.FTP(self.host, timeout=30)
-            self.ftp.login(self.username, self.password)
+            logger.info(f"Connecting to FTP: {self.username}@{self.host}:{self.port}")
+            
+            # Connect with port support
+            if self.port and self.port != 21:
+                self.ftp = ftplib.FTP(timeout=30)
+                self.ftp.connect(self.host, self.port)
+                self.ftp.login(self.username, self.password)
+            else:
+                self.ftp = ftplib.FTP(self.host, timeout=30)
+                self.ftp.login(self.username, self.password)
+            
             self.ftp.set_pasv(True)  # Use passive mode
             
-            # Create remote directory if it doesn't exist
+            logger.info(f"FTP login successful! Current directory: {self.ftp.pwd()}")
+            
+            # Navigate to or create remote directory
             try:
                 self.ftp.cwd(self.remote_dir)
-            except:
+                logger.info(f"Changed to directory: {self.remote_dir}")
+            except ftplib.error_perm as e:
+                logger.warning(f"Directory {self.remote_dir} not accessible: {e}")
+                
                 # Try to create directory path
                 dirs = self.remote_dir.strip('/').split('/')
                 current = ''
+                
                 for dir_name in dirs:
+                    current = f"{current}/{dir_name}"
                     try:
-                        current = f"{current}/{dir_name}"
                         self.ftp.cwd(current)
+                        logger.debug(f"Changed to: {current}")
                     except:
                         try:
                             self.ftp.mkd(current)
                             self.ftp.cwd(current)
-                        except:
+                            logger.info(f"Created directory: {current}")
+                        except Exception as mkdir_error:
+                            logger.error(f"Cannot create directory {current}: {mkdir_error}")
+                            # Try to continue anyway
                             pass
             
             self.connected = True
-            logger.info(f"FTP connected to {self.host}")
+            logger.info(f"FTP connected successfully to {self.host}")
             return True
 
+        except ftplib.error_perm as e:
+            logger.error(f"FTP permission error: {e}")
+            logger.error(f"Check credentials: {self.username}@{self.host}")
+            self.connected = False
+            return False
         except ftplib.all_errors as e:
             logger.error(f"FTP connection failed: {e}")
+            logger.error(f"Host: {self.host}:{self.port}, User: {self.username}")
+            self.connected = False
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected FTP error: {e}")
             self.connected = False
             return False
 
@@ -159,6 +196,7 @@ class FTPUploader:
                 return None
 
             # Upload file in binary mode
+            logger.info(f"Uploading {os.path.basename(local_path)} to {self.remote_dir}/{remote_filename}")
             with open(local_path, 'rb') as file:
                 self.ftp.storbinary(f'STOR {remote_filename}', file)
 
@@ -167,6 +205,9 @@ class FTPUploader:
             logger.info(f"Image uploaded successfully: {public_url}")
             return public_url
 
+        except ftplib.error_perm as e:
+            logger.error(f"FTP permission error during upload: {e}")
+            return None
         except Exception as e:
             logger.error(f"FTP upload failed: {e}")
             return None
@@ -194,8 +235,10 @@ class FTPUploader:
         """Test FTP connection"""
         try:
             if self.connect():
+                logger.info("FTP connection test: SUCCESS")
                 self.disconnect()
                 return True
+            logger.error("FTP connection test: FAILED")
             return False
         except Exception as e:
             logger.error(f"FTP test failed: {e}")
