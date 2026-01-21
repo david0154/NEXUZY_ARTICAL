@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""
-NEXUZY ARTICAL - Main Application Entry Point
-Version: 1.0.0
+"""NEXUZY ARTICAL - Main Application Entry Point
+
+Version: 2.1.0
 Developer: Manoj Konar
 Email: monoj@nexuzy.in
+
+Features:
+- Bidirectional Firebase sync
+- Fresh install: Downloads existing Firebase data
+- Delete sync to Firebase
+- FTP image upload
 """
 
 import sys
@@ -12,7 +18,6 @@ import tkinter as tk
 from tkinter import messagebox
 from datetime import datetime
 
-# Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import (
@@ -49,7 +54,7 @@ class NexuzyApp:
         self.root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
         self.root.configure(bg="#f0f0f0")
 
-        # Center window on screen
+        # Center window
         self.root.update_idletasks()
         width = self.root.winfo_width()
         height = self.root.winfo_height()
@@ -57,7 +62,7 @@ class NexuzyApp:
         y = (self.root.winfo_screenheight() // 2) - (height // 2)
         self.root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}+{x}+{y}")
 
-        # Set window icon if available
+        # Set window icon
         try:
             icon_path = os.path.join(os.path.dirname(__file__), "assets", "icon.ico")
             if os.path.exists(icon_path):
@@ -69,7 +74,7 @@ class NexuzyApp:
         self.logger.info(f"{APP_NAME} v{APP_VERSION} window initialized")
 
     def ensure_default_admin(self):
-        """Create default admin account once (if not exists)."""
+        """Create default admin account if not exists"""
         try:
             default_username = "david"
             default_password = "784577"
@@ -84,15 +89,49 @@ class NexuzyApp:
             self.db.create_or_update_user(user_id, default_username, hash_password(default_password), default_role)
             self.logger.info("Default admin created: david / 784577")
 
-            # If online + firebase is initialized, try to create there as well
+            # Sync to Firebase if connected
             try:
-                if self.network_checker.is_connected() and getattr(self.firebase, "initialized", False):
-                    self.firebase.create_user(user_id, default_username, default_password, default_role)
+                if self.network_checker.is_connected() and self.firebase.is_connected():
+                    self.firebase.create_user(user_id, default_username, hash_password(default_password), default_role)
             except Exception as e:
                 self.logger.warning(f"Default admin Firebase sync skipped: {e}")
 
         except Exception as e:
             self.logger.warning(f"Failed to ensure default admin: {e}")
+
+    def initial_firebase_sync(self):
+        """Perform initial Firebase sync on fresh install"""
+        try:
+            if not self.firebase.is_connected():
+                self.logger.info("Firebase not connected - skipping initial sync")
+                return
+
+            self.logger.info("Starting initial Firebase sync...")
+            
+            # Check if this is a fresh install (empty local DB)
+            local_articles = self.db.get_articles_count()
+            local_users = len(self.db.get_all_users())
+            
+            self.logger.info(f"Local DB state: {local_articles} articles, {local_users} users")
+            
+            # Perform bidirectional sync
+            stats = self.firebase.initial_sync_from_firebase(self.db)
+            
+            if stats['articles'] > 0 or stats['users'] > 0:
+                self.logger.info(f"Firebase sync complete: Downloaded {stats['articles']} articles, {stats['users']} users")
+                messagebox.showinfo(
+                    "Firebase Sync",
+                    f"Successfully synced from cloud:\n\n"
+                    f"Articles: {stats['articles']}\n"
+                    f"Users: {stats['users']}\n\n"
+                    f"Your local database is now up to date!"
+                )
+            else:
+                self.logger.info("No new data to sync from Firebase")
+                
+        except Exception as e:
+            self.logger.error(f"Initial Firebase sync failed: {e}")
+            # Don't show error to user - app can still work offline
 
     def initialize_app(self):
         """Initialize application components"""
@@ -101,19 +140,32 @@ class NexuzyApp:
             self.db.initialize()
             self.logger.info("Local database initialized")
 
-            # Check internet connectivity
+            # Check network
             is_online = self.network_checker.is_connected()
             self.logger.info(f"Network status: {'Online' if is_online else 'Offline'}")
 
-            # Initialize Firebase if online
+            # Initialize Firebase
             if is_online:
                 try:
-                    self.firebase.initialize()
-                    self.logger.info("Firebase initialized")
+                    # Firebase initializes in __init__, just check connection
+                    if self.firebase.is_connected():
+                        self.logger.info("Firebase connected successfully")
+                        
+                        # CRITICAL: Attach Firebase to LocalDatabase for sync operations
+                        self.db.set_firebase_sync(self.firebase)
+                        self.logger.info("Firebase sync handler attached to database")
+                        
+                        # Perform initial sync (downloads existing Firebase data)
+                        self.initial_firebase_sync()
+                    else:
+                        self.logger.warning("Firebase not connected - running in offline mode")
                 except Exception as e:
                     self.logger.warning(f"Firebase initialization failed: {e}")
+                    self.logger.info("Running in offline mode")
+            else:
+                self.logger.info("No internet connection - running in offline mode")
 
-            # Create default admin after DB init
+            # Create default admin
             self.ensure_default_admin()
 
         except Exception as e:
@@ -122,7 +174,7 @@ class NexuzyApp:
             self.root.destroy()
 
     def show_login(self):
-        """Display login window (rendered inside root)"""
+        """Display login window"""
         try:
             self.logger.info("Showing login window")
             LoginWindow(
@@ -148,7 +200,7 @@ class NexuzyApp:
         }
         self.logger.info(f"User '{username}' ({role}) logged in successfully")
 
-        # Import dashboard based on role
+        # Load appropriate dashboard
         if role == 'admin':
             from dashboard.admin_dashboard import AdminDashboard
             dashboard_class = AdminDashboard
