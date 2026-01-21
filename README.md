@@ -1,148 +1,83 @@
-# NEXUZY ARTICAL
+# NEXUZY ARTICAL - Article Management System
 
-> **Offline-First Python Tkinter Windows Application**  
-> Admin + User Dashboard | Firebase + Local DB Sync  
-> Developed by **David** | david@nexuzy.in  
-> **Nexuzy** © 2026
+![Version](https://img.shields.io/badge/version-2.0-blue.svg)
+![Python](https://img.shields.io/badge/python-3.8%2B-brightgreen.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
 
----
+## 📝 About
 
-## 🎯 Overview
+**NEXUZY ARTICAL** is an offline-first article management system built with Python and Tkinter, designed for manufacturing and inventory tracking. It provides a robust desktop application for creating, managing, and syncing articles with Firebase backend support.
 
-**NEXUZY ARTICAL** is a complete, production-ready application for managing articles with:
+### Key Features
 
-- ✅ **Offline-First Architecture** - Works without internet, syncs when online
-- ✅ **Role-Based Access** - Admin and User permissions
-- ✅ **Real-Time Sync** - Firebase Firestore integration
-- ✅ **Secure Authentication** - PBKDF2-SHA256 password hashing
-- ✅ **Windows Application** - PyInstaller + Inno Setup for distribution
-- ✅ **Professional UI** - Modern Tkinter interface
-- ✅ **Complete Logging** - Audit trail and error tracking
-
----
-
-## 📋 Features
-
-### Admin Features
-- ✅ Add, Edit, Delete Articles
-- ✅ Create New Users
-- ✅ View All Articles and Users
-- ✅ Force Manual Sync
-- ✅ View Sync Status
-- ✅ Analytics Dashboard
-
-### User Features
-- ✅ Add Articles
-- ✅ View All Articles
-- ✅ Automatic Sync (Offline Queue)
-- ✅ Internet Status Indicator
-- ✅ Quick Actions
-
-### Technical Features
-- ✅ SQLite Local Database
-- ✅ Firebase Firestore Cloud Storage
-- ✅ Automatic Offline-Online Detection
-- ✅ Intelligent Sync Engine
-- ✅ Security Rules & Custom Claims
-- ✅ Comprehensive Error Handling
-- ✅ Detailed Application Logs
+✅ **Offline-First Architecture** - Works seamlessly without internet connection  
+✅ **User Authentication** - Secure login with role-based access (Admin/User)  
+✅ **Remember Me** - Auto-fill saved credentials on next login  
+✅ **Article Management** - Create, view, edit, and delete articles  
+✅ **Unique Article IDs** - Auto-generated `Fides-XXXXXX` identifiers  
+✅ **Image Support** - Attach images to articles with built-in picker  
+✅ **Username Display** - Shows logged-in user in dashboard header  
+✅ **Full Scrollbar Support** - Smooth mouse wheel and keyboard navigation  
+✅ **Firebase Sync** - Automatic cloud synchronization when online  
+✅ **Export Functionality** - Export articles to Excel/PDF formats  
+✅ **Admin Dashboard** - Full CRUD operations for administrators  
+✅ **User Dashboard** - Limited create-only access for regular users  
 
 ---
 
-## 📊 Data Fields
+## 🛠️ Technology Stack
 
-**ARTICLE:**
-- Article ID (Auto-generated UUID)
-- Article Name
-- Mould
-- Size (XS, S, M, L, XL, XXL, Free)
-- Gender (Male, Female, Unisex)
-- Created By (User ID)
-- Created At (Timestamp)
-- Last Updated (Timestamp)
-- Sync Status (Pending/Synced)
+- **Language:** Python 3.8+
+- **GUI Framework:** Tkinter with ttk widgets
+- **Database:** SQLite (local), Firebase Firestore (cloud)
+- **Image Processing:** Pillow (PIL)
+- **Build Tool:** PyInstaller
+- **Export:** openpyxl (Excel), reportlab (PDF)
 
 ---
 
-## 🗂️ Project Structure
+## 💾 Installation
 
-```
-NEXUZY_ARTICAL/
-├── main.py                      # Entry point
-├── config.py                    # Global configuration
-├── requirements.txt             # Dependencies
-├── firebase_config.json         # Firebase credentials (YOUR OWN)
-├── inno_setup.iss              # Windows installer
-├── README.md                    # This file
-│
-├── auth/
-│   ├── __init__.py
-│   └── login.py               # Login Screen
-│
-├── dashboard/
-│   ├── __init__.py
-│   ├── admin_dashboard.py     # Admin Panel
-│   ├── user_dashboard.py      # User Panel
-│   └── widgets.py             # Custom Widgets
-│
-├── db/
-│   ├── __init__.py
-│   ├── models.py              # Data Models
-│   ├── local_db.py            # SQLite Manager
-│   └── firebase_sync.py       # Cloud Sync
-│
-├── utils/
-│   ├── __init__.py
-│   ├── constants.py           # Constants
-│   ├── network.py             # Internet Check
-│   ├── security.py            # Password Hashing
-│   └── logger.py              # Logging Setup
-│
-├── assets/
-│   ├── logo.png               # Logo (256x256)
-│   ├── logo.ico               # Windows Icon
-│   └── icon.ico               # EXE Icon
-│
-└── build/
-    └── build.py               # Build Script
-```
+### Prerequisites
 
----
+- Python 3.8 or higher
+- pip package manager
 
-## 🚀 Quick Start
+### Setup Steps
 
-### 1. Clone Repository
+1. **Clone the repository**
 
 ```bash
 git clone https://github.com/david0154/NEXUZY_ARTICAL.git
 cd NEXUZY_ARTICAL
 ```
 
-### 2. Install Dependencies
+2. **Install dependencies**
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Setup Firebase
+3. **Configure Firebase (Optional for cloud sync)**
 
-1. Go to [Firebase Console](https://firebase.google.com)
-2. Create a new project
-3. Enable Firestore Database (Start in test mode)
-4. Download Service Account Key (JSON)
-5. Save as `firebase_config.json` in project root
+Create `firebase_config.json` in the project root:
 
-### 4. Initialize Database
-
-```bash
-python -c "from db.local_db import LocalDatabase; db = LocalDatabase(); print('Database initialized')"
+```json
+{
+  "type": "service_account",
+  "project_id": "your-project-id",
+  "private_key_id": "your-private-key-id",
+  "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
+  "client_email": "your-service-account@your-project.iam.gserviceaccount.com",
+  "client_id": "your-client-id",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "your-cert-url"
+}
 ```
 
-### 5. Create Admin User (Optional)
-
-The app will create tables automatically. Run and use login screen.
-
-### 6. Run Application
+4. **Run the application**
 
 ```bash
 python main.py
@@ -150,249 +85,248 @@ python main.py
 
 ---
 
-## 🔐 Firebase Setup
+## 📦 Building Executable
 
-### Create Firestore Collections
-
-**Manual Setup (if auto-creation fails):**
-
-```javascript
-// Firestore Rules (Important!)
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /users/{userId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth.token.role == "admin";
-    }
-    match /articles/{articleId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      allow update, delete: if request.auth.token.role == "admin";
-    }
-  }
-}
-```
-
----
-
-## 👤 Test Users
-
-Create these users for testing:
-
-| Username | Password | Role |
-|----------|----------|------|
-| admin | admin@123 | admin |
-| user1 | user@123 | user |
-
-**How to create:**
-1. Run `python main.py`
-2. Admin creates users via "Add User" in admin panel
-3. Users login with their credentials
-
----
-
-## 🔄 How Sync Works
-
-```
-App Starts
-    ↓
-Check Internet Connection
-    ├→ ONLINE: Sync pending data to Firebase
-    │          Download latest from cloud
-    └→ OFFLINE: Queue changes locally in SQLite
-    ↓
-User Creates/Updates Article
-    ↓
-Save to SQLite (mark as pending)
-    ↓
-Auto-sync every 30 seconds if online
-    ↓
-Once synced, mark as "synced" in local DB
-```
-
-**Manual Sync:** Admin can force sync via "Force Sync" button
-
----
-
-## 🏗️ Build & Package
-
-### Build EXE with PyInstaller
-
-```bash
-# Single file executable
-pyinstaller --onefile --windowed --icon=assets/icon.ico --name="NEXUZY_ARTICAL" main.py
-
-# Output: dist/NEXUZY_ARTICAL.exe
-```
-
-### Create Windows Installer (Inno Setup)
-
-1. Download [Inno Setup](https://jrsoftware.org/isinfo.php)
-2. Open `inno_setup.iss`
-3. Compile → Creates installer EXE
-4. Share installer for deployment
-
-### Automated Build
+Create a standalone `.exe` file for distribution:
 
 ```bash
 python build/build.py
 ```
 
----
+The executable will be created in the `dist/` folder.
 
-## ⚙️ Configuration
+### Manual Build (Alternative)
 
-Edit `config.py` to customize:
-
-```python
-# UI Dimensions
-WINDOW_WIDTH = 900
-WINDOW_HEIGHT = 700
-
-# Network Sync
-SYNC_INTERVAL_SECONDS = 30
-
-# Security
-PASSWORD_MIN_LENGTH = 6
-MAX_LOGIN_ATTEMPTS = 5
-LOCKOUT_DURATION_SECONDS = 300
-
-# Colors
-PRIMARY_COLOR = "#1f77d4"
-ERROR_COLOR = "#e74c3c"
-SUCCESS_COLOR = "#27ae60"
-```
-
----
-
-## 🛠️ Troubleshooting
-
-### "Firebase config not found"
-- **Solution:** Ensure `firebase_config.json` exists in project root
-
-### "No internet connection" message
-- **Solution:** App is in offline mode (expected). Changes will sync when online.
-
-### "Database locked" error
-- **Solution:** Close other instances of the app running
-
-### EXE won't start
-- **Solution:** Run from Command Prompt to see detailed error
-  ```bash
-  NEXUZY_ARTICAL.exe
-  ```
-
-### Sync not working
-- **Checklist:**
-  - [ ] Firebase config is valid
-  - [ ] Internet connection available
-  - [ ] Firebase Firestore rules are set correctly
-  - [ ] Check logs in `logs/` folder
-
----
-
-## 📝 Logging
-
-Logs are stored in `logs/` folder:
-
-```
-logs/
-├── nexuzy_artical_2026-01-20.log
-├── nexuzy_artical_2026-01-21.log
-└── ...
-```
-
-**View logs:**
 ```bash
-tail -f logs/nexuzy_artical_*.log
+pyinstaller --onefile --windowed --name=NEXUZY_ARTICAL \
+  --add-data="assets:assets" \
+  --add-data="config:config" \
+  --hidden-import=firebase_admin \
+  --hidden-import=PIL._tkinter_finder \
+  --icon=assets/icon.ico \
+  main.py
 ```
 
 ---
 
-## 🔒 Security
+## 🚀 Usage
 
-### Password Security
-- ✅ PBKDF2-SHA256 hashing
-- ✅ Minimum 6 characters
-- ✅ Letters + Numbers required
-- ✅ Never stored as plain text
+### First Launch
 
-### Firebase Security
-- ✅ Custom Claims for admin verification
-- ✅ Firestore Rules enforcement
-- ✅ Read/Write access control
+1. Run the application (`main.py` or `.exe`)
+2. Login screen will appear
+3. Enter username and password
+4. Check **Remember Me** to save credentials
+5. Default admin credentials are set by admin during initial setup
 
-### Local Security
-- ✅ SQLite in user data folder
-- ✅ Separate logs directory
-- ✅ No credentials in logs
+### User Roles
 
----
+#### **Admin**
+- Create, edit, and delete articles
+- Manage users
+- Export data to Excel/PDF
+- Full system access
 
-## 📱 System Requirements
+#### **User**
+- Create new articles
+- View own articles
+- Share articles
+- Read-only access to others' articles
 
-- **OS:** Windows 7+
-- **Python:** 3.8+
-- **RAM:** 512MB minimum
-- **Disk:** 100MB (with all dependencies)
-- **Internet:** For sync (optional)
+### Creating Articles
 
----
+1. Click **"+ Create New Article"** or **"+ Add New Article"**
+2. Fill in the form:
+   - **Article Name** - Product/article name
+   - **Mould** - Manufacturing mould type
+   - **Size** - Article size
+   - **Gender** - Target gender category
+3. Click **"📷 Select Image"** to attach an image (optional)
+4. Auto-generated **Fides-XXXXXX** ID is displayed
+5. **Created by** shows your username
+6. Click **"Save Article"**
 
-## 🐛 Bug Reports
+### Remember Me Feature
 
-Found a bug? Report it:
-- **Email:** monoj@nexuzy.in
-- **GitHub:** Issues on repository
-- **Include:** 
-  - Steps to reproduce
-  - Error message
-  - Log files
+- Check **"Remember Me"** checkbox before login
+- Credentials are encrypted and saved locally
+- Next time you open the app, username and password will be auto-filled
+- Uncheck to clear saved credentials
 
----
+### Article ID System
 
-## 📚 Documentation
-
-- **[Complete Implementation Guide](./docs/IMPLEMENTATION.md)**
-- **[Database Schema](./docs/DATABASE.md)**
-- **[Firebase Setup Guide](./docs/FIREBASE.md)**
-- **[Build & Deployment](./docs/BUILD.md)**
-
----
-
-## 📞 Support
-
-**Developer:** David 
-**Email:** david@nexuzy.in  
-**Company:** Nexuzy  
-**Website:** nexuzy.in  
-**GitHub:** [github.com/david0154/NEXUZY_ARTICAL](https://github.com/david0154/NEXUZY_ARTICAL)
+Each article gets a unique identifier:
+- Format: `Fides-XXXXXX`
+- X = Random uppercase letter or digit (A-Z, 0-9)
+- Example: `Fides-A7K9M2`, `Fides-X3P1Q8`
+- Guaranteed uniqueness check before creation
 
 ---
 
-## 📄 Version History
+## 📁 Project Structure
 
-### v1.0.0 (January 2026)
-- ✅ Initial Release
-- ✅ Offline-First Architecture
-- ✅ Firebase Sync
-- ✅ Admin/User Roles
-- ✅ Windows Installer
-- ✅ Complete Documentation
+```
+NEXUZY_ARTICAL/
+├── assets/              # Images, icons, and static files
+│   ├── logo.png        # Application logo (shown in login)
+│   └── icon.ico        # Application icon
+├── auth/               # Authentication modules
+│   ├── login.py        # Login screen with Remember Me
+│   └── register.py     # (Disabled - admin-only user creation)
+├── build/              # Build scripts
+│   └── build.py        # PyInstaller build automation
+├── config/             # Configuration files
+│   ├── __init__.py     # App settings and constants
+│   └── saved_credentials.json  # Saved login credentials
+├── dashboard/          # Dashboard modules
+│   ├── admin_dashboard.py   # Admin panel
+│   └── user_dashboard.py    # User panel (with article ID gen)
+├── db/                 # Database modules
+│   ├── local_db.py     # SQLite operations
+│   ├── firebase_db.py  # Firebase operations
+│   └── models.py       # Data models
+├── utils/              # Utility modules
+│   ├── security.py     # Password hashing
+│   ├── network.py      # Network connectivity check
+│   └── logger.py       # Logging configuration
+├── data/               # Generated at runtime
+│   └── fides.db        # Local SQLite database
+├── logs/               # Application logs
+├── main.py             # Application entry point
+├── requirements.txt    # Python dependencies
+└── README.md           # This file
+```
 
 ---
 
-## 📜 License
+## 🔧 Development
 
-Proprietary - Nexuzy © 2026  
-All Rights Reserved
+### Running in Development Mode
+
+```bash
+python main.py
+```
+
+### Database Schema
+
+**Users Table:**
+```sql
+CREATE TABLE users (
+    id TEXT PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL,
+    last_login DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**Articles Table:**
+```sql
+CREATE TABLE articles (
+    id TEXT PRIMARY KEY,              -- Fides-XXXXXX format
+    article_name TEXT NOT NULL,
+    mould TEXT NOT NULL,
+    size TEXT NOT NULL,
+    gender TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    sync_status INTEGER DEFAULT 0,
+    image_path TEXT,                  -- Path to attached image
+    FOREIGN KEY(created_by) REFERENCES users(id)
+);
+```
 
 ---
 
-## 🎉 Thank You!
+## ✨ Recent Updates (v2.0)
 
-Thank you for using **NEXUZY ARTICAL**!  
-For questions or suggestions, reach out to **david@nexuzy.in**
+✅ **Login Enhancements**
+- Added **Remember Me** checkbox
+- Auto-fill saved username and password
+- Encrypted credential storage
+- Logo display from `assets/logo.png`
+- Full scrollbar support with mouse wheel
+- Keyboard navigation (Tab, Enter keys)
 
-**Happy Coding! 🚀**
+✅ **Article Creation Improvements**
+- Auto-generated **Fides-XXXXXX** unique IDs
+- Image picker with file browser
+- Display selected image filename
+- Show **Created by** username in form
+- Image path stored in database
+
+✅ **Dashboard Enhancements**
+- Username displayed in header: **"Welcome, [username] 👤"**
+- Full scrollbar support in all views
+- Article ID column in list views
+- Improved UI/UX with emojis
+
+✅ **Build System**
+- Comprehensive dependency collection
+- Hidden imports for all modules
+- Proper asset packaging
+- Optimized executable size
+- Detailed build verification
+
+---
+
+## 🐛 Known Issues
+
+- Firebase sync requires valid `firebase_config.json`
+- First launch may take a few seconds to initialize database
+- Large images (>5MB) may slow down the UI
+
+---
+
+## 🛣️ Roadmap
+
+- [ ] Bulk article import from CSV/Excel
+- [ ] Advanced search and filtering
+- [ ] Article templates
+- [ ] Multi-language support
+- [ ] Mobile companion app
+- [ ] Barcode/QR code generation
+- [ ] Print labels directly from app
+
+---
+
+## 👥 Contributing
+
+Contributions are welcome! Please follow these steps:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+---
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 📧 Contact
+
+**Developer:** Manoj Konar  
+**Email:** monoj@nexuzy.in  
+**Company:** Nexuzy Tech Pvt Ltd  
+**Location:** Kolkata, India  
+**GitHub:** [@david0154](https://github.com/david0154)  
+
+---
+
+## 👏 Acknowledgments
+
+- Firebase for cloud database services
+- Python community for excellent libraries
+- Tkinter for cross-platform GUI framework
+- All contributors and testers
+
+---
+
+**Built with ❤️ by Nexuzy Tech**
