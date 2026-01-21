@@ -2,6 +2,10 @@
 """
 User Dashboard Module
 Limited dashboard for regular users
+
+Policy:
+- Regular users can create articles.
+- Edit/Delete operations are admin-only.
 """
 
 import tkinter as tk
@@ -26,7 +30,7 @@ class UserDashboard:
         self.network_checker = network_checker
         self.logout_callback = logout_callback
         self.logger = logger
-        
+
         self.root.deiconify()
         self.setup_ui()
         self.refresh_data()
@@ -37,12 +41,12 @@ class UserDashboard:
         # Clear root
         for widget in self.root.winfo_children():
             widget.destroy()
-        
+
         # Top bar
         top_frame = tk.Frame(self.root, bg=PRIMARY_COLOR, height=50)
         top_frame.pack(fill=tk.X)
         top_frame.pack_propagate(False)
-        
+
         title_label = tk.Label(
             top_frame,
             text=f"{APP_NAME} - Dashboard",
@@ -51,7 +55,7 @@ class UserDashboard:
             fg="white"
         )
         title_label.pack(side=tk.LEFT, padx=20, pady=10)
-        
+
         user_info = tk.Label(
             top_frame,
             text=f"Welcome, {self.user['username']}",
@@ -60,16 +64,16 @@ class UserDashboard:
             fg="white"
         )
         user_info.pack(side=tk.RIGHT, padx=20, pady=10)
-        
+
         # Main content
         main_frame = tk.Frame(self.root, bg="white")
         main_frame.pack(fill=tk.BOTH, expand=True)
-        
+
         # Sidebar
         sidebar = tk.Frame(main_frame, bg="#f0f0f0", width=200)
         sidebar.pack(side=tk.LEFT, fill=tk.Y)
         sidebar.pack_propagate(False)
-        
+
         buttons = [
             ("📊 Dashboard", self.show_dashboard),
             ("📄 My Articles", self.show_my_articles),
@@ -77,7 +81,7 @@ class UserDashboard:
             ("⚙️ Settings", self.show_settings),
             ("🚪 Logout", self.logout),
         ]
-        
+
         for btn_text, btn_command in buttons:
             btn = tk.Button(
                 sidebar,
@@ -95,11 +99,11 @@ class UserDashboard:
             btn.pack(fill=tk.X)
             btn.bind("<Enter>", lambda e, b=btn: b.config(bg="#e0e0e0"))
             btn.bind("<Leave>", lambda e, b=btn: b.config(bg="#f0f0f0"))
-        
+
         # Content frame
         self.content_frame = tk.Frame(main_frame, bg="white")
         self.content_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=20, pady=20)
-        
+
         # Show dashboard by default
         self.show_dashboard()
 
@@ -111,7 +115,7 @@ class UserDashboard:
     def show_dashboard(self):
         """Show main dashboard"""
         self.clear_content()
-        
+
         title = tk.Label(
             self.content_frame,
             text="My Dashboard",
@@ -120,28 +124,28 @@ class UserDashboard:
             fg="#333"
         )
         title.pack(anchor=tk.W, pady=(0, 20))
-        
+
         # Statistics
         try:
             my_articles = len(self.db.get_articles_by_user(self.user['id']))
             is_online = self.network_checker.is_connected()
-        except:
+        except Exception:
             my_articles = 0
             is_online = False
-        
+
         stats_frame = tk.Frame(self.content_frame, bg="white")
         stats_frame.pack(fill=tk.X, pady=10)
-        
+
         stats = [
             ("My Articles", str(my_articles), "📄"),
             ("Status", "Online" if is_online else "Offline", "🌐"),
         ]
-        
+
         for label, value, emoji in stats:
             stat_card = tk.Frame(stats_frame, bg="#f9f9f9", relief=tk.FLAT, bd=1)
             stat_card.pack(fill=tk.X, pady=5, padx=10)
             tk.Label(stat_card, text=f"{emoji} {label}: {value}", font=("Arial", 12), bg="#f9f9f9").pack(anchor=tk.W, padx=15, pady=10)
-        
+
         # Quick actions
         tk.Label(
             self.content_frame,
@@ -150,7 +154,7 @@ class UserDashboard:
             bg="white",
             fg="#333"
         ).pack(anchor=tk.W, pady=(20, 10))
-        
+
         tk.Button(
             self.content_frame,
             text="+ Create New Article",
@@ -162,10 +166,18 @@ class UserDashboard:
             command=self.create_article
         ).pack(fill=tk.X, pady=5, ipady=8)
 
+        tk.Label(
+            self.content_frame,
+            text="Note: Edit/Delete articles are admin-only.",
+            font=("Arial", 9),
+            bg="white",
+            fg="#777"
+        ).pack(anchor=tk.W, pady=(10, 0))
+
     def show_my_articles(self):
         """Show user's articles"""
         self.clear_content()
-        
+
         title = tk.Label(
             self.content_frame,
             text="My Articles",
@@ -173,7 +185,7 @@ class UserDashboard:
             bg="white"
         )
         title.pack(anchor=tk.W, pady=(0, 15))
-        
+
         # Add button
         tk.Button(
             self.content_frame,
@@ -185,29 +197,29 @@ class UserDashboard:
             cursor="hand2",
             command=self.create_article
         ).pack(anchor=tk.W, pady=(0, 15), ipady=6, ipadx=15)
-        
+
         # Articles list
         try:
             articles = self.db.get_articles_by_user(self.user['id'])
             if articles:
                 columns = ("Name", "Mould", "Size", "Gender", "Date")
                 tree = ttk.Treeview(self.content_frame, columns=columns, height=15, show="headings")
-                
+
                 for col in columns:
                     tree.column(col, width=130)
                     tree.heading(col, text=col)
-                
+
                 for article in articles:
                     tree.insert("", tk.END, values=(
                         article['article_name'],
                         article['mould'],
                         article['size'],
                         article['gender'],
-                        article['created_at'][:10]
+                        str(article.get('created_at', ''))[:10]
                     ))
-                
+
                 tree.pack(fill=tk.BOTH, expand=True)
-                
+
                 scrollbar = ttk.Scrollbar(self.content_frame, orient=tk.VERTICAL, command=tree.yview)
                 tree.configure(yscroll=scrollbar.set)
                 scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -232,7 +244,7 @@ class UserDashboard:
     def show_share(self):
         """Show article sharing options"""
         self.clear_content()
-        
+
         title = tk.Label(
             self.content_frame,
             text="Share Article",
@@ -240,28 +252,28 @@ class UserDashboard:
             bg="white"
         )
         title.pack(anchor=tk.W, pady=(0, 20))
-        
+
         tk.Label(
             self.content_frame,
             text="Select an article to share:",
             font=("Arial", 11),
             bg="white"
         ).pack(anchor=tk.W, pady=(0, 10))
-        
+
         try:
             articles = self.db.get_articles_by_user(self.user['id'])
             if articles:
                 for article in articles:
                     frame = tk.Frame(self.content_frame, bg="#f9f9f9", relief=tk.FLAT, bd=1)
                     frame.pack(fill=tk.X, pady=8)
-                    
+
                     tk.Label(
                         frame,
                         text=f"📄 {article['article_name']} ({article['size']})",
                         font=("Arial", 10),
                         bg="#f9f9f9"
                     ).pack(side=tk.LEFT, padx=15, pady=10)
-                    
+
                     tk.Button(
                         frame,
                         text="Share",
@@ -292,7 +304,7 @@ class UserDashboard:
     def show_settings(self):
         """Show user settings"""
         self.clear_content()
-        
+
         title = tk.Label(
             self.content_frame,
             text="Settings",
@@ -300,13 +312,13 @@ class UserDashboard:
             bg="white"
         )
         title.pack(anchor=tk.W, pady=(0, 20))
-        
+
         settings = [
             ("Username", self.user['username']),
             ("Role", self.user['role'].upper()),
             ("Login Time", str(self.user['login_time'])[:19]),
         ]
-        
+
         for label, value in settings:
             frame = tk.Frame(self.content_frame, bg="white")
             frame.pack(fill=tk.X, pady=5)
@@ -314,23 +326,23 @@ class UserDashboard:
             tk.Label(frame, text=value, font=("Arial", 10), bg="white", fg="#666").pack(side=tk.LEFT)
 
     def create_article(self):
-        """Create new article dialog"""
+        """Create new article dialog (users can create, but cannot edit/delete)."""
         import uuid
-        
+
         dialog = tk.Toplevel(self.root)
         dialog.title("Create Article")
         dialog.geometry("400x350")
         dialog.resizable(False, False)
-        
+
         tk.Label(dialog, text="Create New Article", font=("Arial", 12, "bold")).pack(pady=10)
-        
+
         fields = {}
         for label in ["Article Name", "Mould", "Size", "Gender"]:
             tk.Label(dialog, text=f"{label}:", font=("Arial", 10)).pack(anchor=tk.W, padx=20, pady=(10, 3))
             entry = tk.Entry(dialog, font=("Arial", 10), width=35)
             entry.pack(padx=20, ipady=5)
             fields[label.lower().replace(" ", "_")] = entry
-        
+
         def save_article():
             try:
                 article_id = str(uuid.uuid4())
@@ -347,7 +359,7 @@ class UserDashboard:
                 self.show_my_articles()
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to create article: {e}")
-        
+
         tk.Button(
             dialog,
             text="Save",
@@ -366,11 +378,10 @@ class UserDashboard:
         """Refresh dashboard data periodically"""
         try:
             if self.network_checker.is_connected():
-                # Attempt sync
                 pass
-        except:
+        except Exception:
             pass
-        
+
         # Schedule next refresh
         self.root.after(30000, self.refresh_data)
 
